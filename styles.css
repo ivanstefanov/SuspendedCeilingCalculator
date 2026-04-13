@@ -8,6 +8,9 @@ header h1 { margin: 0 0 .4rem; font-size: 1.4rem; }
 header p { margin: 0; font-size: .95rem; }
 main { padding: 1rem; display: grid; gap: 1rem; }
 .panel { background: white; border-radius: 10px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.settings-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: .9rem; }
+.settings-card { border: 1px solid #cfdae6; border-radius: 10px; padding: .75rem; margin: 0; background: #fbfdff; }
+.settings-card legend { font-weight: 700; color: #1f476b; padding: 0 .35rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: .75rem; }
 label { font-size: .88rem; display: flex; flex-direction: column; gap: .25rem; }
 input, select, button { padding: .5rem .6rem; border: 1px solid #b5c7d9; border-radius: 7px; font-size: .92rem; }
@@ -28,7 +31,9 @@ button.danger { background: #b12020; }
 .swatch-offset { background:#de8f00; border:1px dashed #a66800; height:6px; }
 .table-panel { overflow: hidden; }
 .table-scroll { overflow: auto; }
-table { border-collapse: collapse; min-width: 2300px; width: 100%; }
+table { border-collapse: collapse; width: 100%; }
+#rooms-table { min-width: 2300px; }
+#constants-table { min-width: 760px; }
 th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; white-space: nowrap; }
 thead th { background: #0f4f88; color:white; position: sticky; top:0; }
 tr:nth-child(even) td { background: #f7fbff; }

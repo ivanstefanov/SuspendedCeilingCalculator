@@ -1,5 +1,13 @@
 const STORAGE_KEY = "suspended-ceiling-rooms-v1";
 const LOAD_CLASSES = ["0.15", "0.30", "0.40", "0.50", "0.65"];
+const BOARD_TYPE_TO_B_SPACING = {
+  "12.5_silent": 400,
+  "12.5_or_2x12.5": 500,
+  "15_or_2x15": 550,
+  "18_or_25_18": 625,
+  "20_or_2x20": 625,
+  "25": 800,
+};
 
 const KNAUF_TABLE = {
   false: {
@@ -39,11 +47,13 @@ const hangerSpacingInput = document.getElementById("hangerSpacing");
 const cSpacingOptions = document.getElementById("cSpacingOptions");
 const hangerSpacingOptions = document.getElementById("hangerSpacingOptions");
 const mountSpacingInput = document.getElementById("mountSpacing");
+const boardTypeInput = document.getElementById("boardType");
 const udDowelInput = document.getElementById("udDowelSpacing");
 const cdProfileLengthInput = document.getElementById("cdProfileLengthM");
 const udProfileLengthInput = document.getElementById("udProfileLengthM");
 const tbody = document.querySelector("#rooms-table tbody");
 const tableNote = document.getElementById("table-note");
+const constantsTbody = document.querySelector("#constants-table tbody");
 const scheme = document.getElementById("scheme");
 
 let areaDirty = false;
@@ -137,7 +147,8 @@ function calcRoomMetrics(room) {
   const udNeededM = 2 * (W + L);
   const udProfiles = ceilDiv(udNeededM, udProfileLengthM);
 
-  const primaryPositionsMm = buildPositionsMm(W * 1000, cSpacingMm, 300);
+  const firstCarrierOffsetMm = Math.max(0, cSpacingMm - 30);
+  const primaryPositionsMm = buildPositionsMm(W * 1000, cSpacingMm, firstCarrierOffsetMm);
   const primaryRows = primaryPositionsMm.length;
   const primaryTotalM = primaryRows * L;
   const primaryProfiles = ceilDiv(primaryTotalM, cdProfileLengthM);
@@ -191,7 +202,7 @@ function calcRoomMetrics(room) {
     bSpacingMm,
     cdProfileLengthM,
     udProfileLengthM,
-    firstProfileOffsetMm: 300,
+    firstCarrierOffsetMm,
     primaryPositionsMm,
     secondaryPositionsMm,
     hangerPositionsMm,
@@ -223,7 +234,7 @@ function renderTable() {
     tbody.appendChild(tr);
   });
 
-  tableNote.textContent = "Бележка: c и a се префилват по таблица Knauf според натоварване/пожарозащита, но могат да се редактират ръчно; първи профил/окачвач е на 300 мм от стената; броят профили се закръгля винаги нагоре.";
+  tableNote.textContent = "Бележка: c и a се префилват по таблица Knauf според натоварване/пожарозащита, b се предлага според типа плоскост. За D113: първи и последен носещ CD са на (c - 30) мм от стените. Броят профили се закръгля винаги нагоре.";
 
   const selected = rooms[0];
   if (selected) renderScheme(calcRoomMetrics(selected), selected.name);
@@ -243,7 +254,7 @@ function renderScheme(m, roomName) {
     <text x="${pad}" y="26" fill="#0f4f88" font-size="14">Стая: ${roomName}</text>
     <text x="${pad + 220}" y="26" fill="#0f4f88" font-size="14">W=${format(m.wShortM)} m, L=${format(m.lLongM)} m</text>
     <text x="${pad + 500}" y="26" fill="#0f4f88" font-size="14">c=${m.cSpacingMm} мм, b=${m.bSpacingMm} мм, a=${m.hangerSpacingMm} мм</text>
-    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи профил: ${m.firstProfileOffsetMm} мм</text>
+    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи/последен носещ CD: c - 30 = ${m.firstCarrierOffsetMm} мм</text>
   `;
 
   const primaryScale = rh / (m.wShortM * 1000);
@@ -276,6 +287,7 @@ function resetForm() {
   areaDirty = false;
   document.getElementById("form-title").textContent = "Нова стая";
   mountSpacingInput.value = 500;
+  boardTypeInput.value = "12.5_or_2x12.5";
   udDowelInput.value = 500;
   cdProfileLengthInput.value = 4;
   udProfileLengthInput.value = 4;
@@ -294,6 +306,7 @@ form.addEventListener("submit", (e) => {
     fireProtection: fireInput.value === "true",
     cSpacingMm: Number(cSpacingInput.value),
     hangerSpacingMm: Number(hangerSpacingInput.value),
+    boardType: boardTypeInput.value,
     mountSpacingMm: Number(mountSpacingInput.value),
     udDowelSpacingMm: Number(udDowelInput.value),
     cdProfileLengthM: Number(cdProfileLengthInput.value),
@@ -336,6 +349,7 @@ tbody.addEventListener("click", (e) => {
   refreshSpacingPresets(true);
   cSpacingInput.value = room.cSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).cSpacingMm;
   hangerSpacingInput.value = room.hangerSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).hangerSpacingMm;
+  boardTypeInput.value = room.boardType || "12.5_or_2x12.5";
   mountSpacingInput.value = room.mountSpacingMm || 500;
   udDowelInput.value = room.udDowelSpacingMm || 500;
   cdProfileLengthInput.value = room.cdProfileLengthM || 4;
@@ -349,6 +363,10 @@ yCmInput.addEventListener("input", recalcArea);
 areaInput.addEventListener("input", () => { areaDirty = true; });
 loadInput.addEventListener("change", () => refreshSpacingPresets(true));
 fireInput.addEventListener("change", () => refreshSpacingPresets(true));
+boardTypeInput.addEventListener("change", () => {
+  if (boardTypeInput.value === "custom") return;
+  mountSpacingInput.value = BOARD_TYPE_TO_B_SPACING[boardTypeInput.value] || 500;
+});
 
 // Export / import
 
@@ -389,5 +407,24 @@ document.getElementById("clear-all").addEventListener("click", () => {
   resetForm();
 });
 
+function renderConstantsTable() {
+  const constants = [
+    { key: "b (монтажни CD)", value: "400 / 500 / 550 / 625 / 800 мм", description: "Според тип и дебелина на плоскостта." },
+    { key: "Първи/последен носещ CD", value: "c - 30 мм", description: "Оста е симетрично разположена от двете крайни стени." },
+    { key: "UD анкериране", value: "≤ 625 мм", description: "Закрепване на UD профила към периметъра." },
+    { key: "Влизане в UD", value: "≥ 20 мм", description: "Носещи/монтажни профили влизат минимум 20 мм в UD." },
+    { key: "Винтове към UD", value: "≤ 170 мм", description: "При носеща връзка по периметъра (вариант 2)." },
+    { key: "Макс. конзолно издаване", value: "≈ 100 мм", description: "Максимално издаване на облицовката към периметъра." },
+    { key: "Монтажни CD при мазилка ≥6 мм", value: "≤ 312.5 мм", description: "По-гъста подконструкция при допълнителен товар от мазилка." },
+    { key: "Мин. разст. окачвания по CD", value: "≥ 500 мм", description: "Разстоянието между две окачвания по един CD." },
+    { key: "Разпределен товар (без огнезащита)", value: "≤ 20 kg/m²", description: "По-големи товари се окачват към основния таван/помощна конструкция." },
+    { key: "Единичен товар към стоманена конструкция", value: "≤ 10 kg", description: "Максимум на точков товар към подконструкцията." },
+  ];
+  constantsTbody.innerHTML = constants
+    .map((item) => `<tr><td>${item.key}</td><td>${item.value}</td><td>${item.description}</td></tr>`)
+    .join("");
+}
+
 renderTable();
 refreshSpacingPresets(true);
+renderConstantsTable();
