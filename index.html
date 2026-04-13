@@ -3,161 +3,118 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Suspended Ceiling Calculator</title>
+  <title>Knauf D113 калкулатор</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
-    <h1>Калкулатор за окачен таван (UD/CD)</h1>
-    <p>Съобразено с таблица за максимални разстояния на Knauf (вариант 2, едно ниво).</p>
+    <h1>Knauf D113 (едно ниво) — калкулатор</h1>
+    <p>Множество стаи, override на автоматични стойности, визуализация в реално време и JSON import/export.</p>
   </header>
 
   <main>
     <section class="panel">
-      <h2 id="form-title">Нова стая</h2>
-      <form id="room-form">
-        <input type="hidden" id="room-id" />
-        <div class="settings-panels">
-          <fieldset class="settings-card">
-            <legend>Настройки на стаята</legend>
-            <div class="grid">
-              <label>Име на стая
-                <input id="name" required placeholder="Дневна" />
-              </label>
-              <label>X (см)
-                <input id="xCm" type="number" min="1" step="1" required />
-              </label>
-              <label>Y (см)
-                <input id="yCm" type="number" min="1" step="1" required />
-              </label>
-              <label>Площ (м²)
-                <input id="areaM2" type="number" min="0.01" step="0.01" required />
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="settings-card">
-            <legend>Профили (таблица Knauf)</legend>
-            <div class="grid">
-              <label>Клас на натоварване
-                <select id="loadClass" required>
-                  <option value="0.15">до 0.15 kN/m²</option>
-                  <option value="0.30">до 0.30 kN/m²</option>
-                  <option value="0.40">до 0.40 kN/m²</option>
-                  <option value="0.50">до 0.50 kN/m²</option>
-                  <option value="0.65">до 0.65 kN/m²</option>
-                </select>
-              </label>
-              <label>Пожарозащита (отдолу)
-                <select id="fireProtection">
-                  <option value="false">Без</option>
-                  <option value="true">Да</option>
-                </select>
-              </label>
-              <label>Тип плоскост (за b)
-                <select id="boardType">
-                  <option value="12.5_silent">12.5 mm Silentboard (b = 400)</option>
-                  <option value="12.5_or_2x12.5" selected>12.5 mm / 2x12.5 mm (b = 500)</option>
-                  <option value="15_or_2x15">15 mm / 2x15 mm (b = 550)</option>
-                  <option value="18_or_25_18">18 mm / 25+18 mm (b = 625)</option>
-                  <option value="20_or_2x20">20 mm / 2x20 mm (b = 625)</option>
-                  <option value="25">25 mm (b = 800)</option>
-                  <option value="custom">Ръчно</option>
-                </select>
-              </label>
-              <label>Осево разст. носещи профили c (мм)
-                <input id="cSpacing" type="number" min="300" step="10" list="cSpacingOptions" required />
-                <datalist id="cSpacingOptions"></datalist>
-              </label>
-              <label>Разст. между окачвачи a (мм)
-                <input id="hangerSpacing" type="number" min="300" step="10" list="hangerSpacingOptions" required />
-                <datalist id="hangerSpacingOptions"></datalist>
-              </label>
-              <label>Разст. монтажни CD b (мм)
-                <input id="mountSpacing" type="number" min="200" step="10" value="500" />
-              </label>
-              <label>Отстояние от стени (мм)
-                <input id="edgeOffset" type="number" min="0" step="10" value="300" />
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="settings-card">
-            <legend>Допълнителни константи</legend>
-            <div class="grid">
-              <label>Разст. дюбели към UD (мм)
-                <input id="udDowelSpacing" type="number" min="150" step="10" value="500" />
-              </label>
-              <label>Дължина на 1 CD профил (м)
-                <input id="cdProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
-              </label>
-              <label>Дължина на 1 UD профил (м)
-                <input id="udProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
-              </label>
-            </div>
-          </fieldset>
-        </div>
-        <div class="actions">
-          <button type="submit">Запази стая</button>
-          <button type="button" id="cancel-edit" class="secondary">Отказ</button>
-        </div>
+      <h2>Глобални константи</h2>
+      <form id="constants-form" class="grid">
+        <label>Дължина CD профил (m)
+          <input id="const-cd-length" type="number" min="0.5" step="0.1" value="4" />
+        </label>
+        <label>Дължина UD профил (m)
+          <input id="const-ud-length" type="number" min="0.5" step="0.1" value="4" />
+        </label>
+        <label>Offset първи профил (cm)
+          <input id="const-offset" type="number" min="0" step="1" value="30" />
+        </label>
+        <label>Разстояние за закрепване UD (mm)
+          <input id="const-ud-anchor" type="number" min="100" step="5" value="625" />
+        </label>
       </form>
     </section>
 
     <section class="panel">
-      <h2>Схема UD/CD</h2>
-      <p class="scheme-legend">
-        <span class="legend-item"><span class="swatch swatch-ud"></span>UD профил (периферен)</span>
-        <span class="legend-item"><span class="swatch swatch-cd-primary"></span>Носещ CD</span>
-        <span class="legend-item"><span class="swatch swatch-cd-secondary"></span>Монтажен CD</span>
-        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи/последен носещ CD: c - отстояние</span>
-      </p>
-      <div class="scheme-wrap">
-        <svg id="scheme" viewBox="0 0 800 420" aria-label="Схема на профилите"></svg>
+      <h2 id="form-title">Нова стая</h2>
+      <form id="room-form" class="grid">
+        <input type="hidden" id="room-id" />
+        <label>Име
+          <input id="room-name" required placeholder="Хол" />
+        </label>
+        <label>Ширина X (cm)
+          <input id="room-width" type="number" min="1" step="1" required />
+        </label>
+        <label>Дължина Y (cm)
+          <input id="room-length" type="number" min="1" step="1" required />
+        </label>
+        <label>Площ (m²)
+          <input id="room-area" type="number" min="0.01" step="0.01" required />
+        </label>
+
+        <label>Клас на натоварване
+          <select id="room-load">
+            <option value="0.15">до 0.15 kN/m²</option>
+            <option value="0.30">до 0.30 kN/m²</option>
+            <option value="0.40">до 0.40 kN/m²</option>
+            <option value="0.50">до 0.50 kN/m²</option>
+            <option value="0.65">до 0.65 kN/m²</option>
+          </select>
+        </label>
+        <label>Пожарозащита
+          <select id="room-fire">
+            <option value="false">Без</option>
+            <option value="true">Да</option>
+          </select>
+        </label>
+        <label>Тип/дебелина ГК (за b)
+          <select id="room-board">
+            <option value="12.5_silent">12.5 Silentboard (400)</option>
+            <option value="12.5_or_2x12.5" selected>12.5 / 2x12.5 (500)</option>
+            <option value="15_or_2x15">15 / 2x15 (550)</option>
+            <option value="18_or_25_18">18 / 25+18 (625)</option>
+            <option value="20_or_2x20">20 / 2x20 (625)</option>
+            <option value="25">25 (800)</option>
+            <option value="custom">Ръчно b</option>
+          </select>
+        </label>
+
+        <label>a (mm)
+          <input id="room-a" type="number" min="100" step="10" required />
+        </label>
+        <label>b (mm)
+          <input id="room-b" type="number" min="100" step="10" required />
+        </label>
+        <label>c (mm)
+          <input id="room-c" type="number" min="100" step="10" required />
+        </label>
+      </form>
+      <p id="validation" class="validation"></p>
+      <div class="actions">
+        <button id="save-room">Запази стая</button>
+        <button id="cancel-room" class="secondary">Отказ</button>
       </div>
     </section>
 
     <section class="panel">
-      <h2>База данни</h2>
+      <h2>Стаи</h2>
+      <div id="room-tabs" class="tabs"></div>
       <div class="actions">
         <button id="export-json">Експорт JSON</button>
-        <label class="import-label">
-          Импорт JSON
-          <input id="import-json" type="file" accept="application/json" />
-        </label>
+        <label class="import-label">Импорт JSON<input id="import-json" type="file" accept="application/json" /></label>
         <button id="clear-all" class="danger">Изтрий всички</button>
       </div>
     </section>
 
+    <section class="panel">
+      <h2>Визуализация</h2>
+      <div class="scheme-wrap"><svg id="scheme" viewBox="0 0 840 420"></svg></div>
+    </section>
+
     <section class="panel table-panel">
-      <h2>Стаи и метрики</h2>
+      <h2>Резултати по стаи</h2>
       <div class="table-scroll">
         <table id="rooms-table">
           <thead>
             <tr>
-              <th>Стая</th><th>X см</th><th>Y см</th><th>Площ м²</th><th>Къса страна W м</th><th>Дълга страна L м</th>
-              <th>UD нужни м</th><th>UD профили (бр.)</th><th>Носещи CD реда</th><th>Носещ CD общо м</th>
-              <th>Носещ CD профили (бр.)</th><th>Монтажни CD реда</th><th>Монтажен CD общо м</th>
-              <th>Монтажни CD профили (бр.)</th><th>Общо CD м</th><th>Общо CD профили (бр.)</th>
-              <th>Кръстати връзки на едно ниво (бр.)</th><th>Директни окачвачи на 1 носещ профил (бр.)</th>
-              <th>Директни окачвачи общо (бр.)</th><th>Метални дюбели към UD (бр.)</th>
-              <th>Метални дюбели към тавана (бр.)</th><th>Общо метални дюбели (бр.)</th>
-              <th>Удължители за носещ CD (бр.)</th><th>Удължители за монтажен CD (бр.)</th>
-              <th>Общо удължители (бр.)</th><th>Натоварване</th><th>Пожарозащита</th><th>Действия</th>
+              <th>Стая</th><th>X</th><th>Y</th><th>Площ</th><th>a</th><th>b</th><th>c</th><th>Носещи CD</th><th>Монтажни CD</th><th>Носещи m</th><th>Монтажни m</th><th>CD бр.</th><th>UD бр.</th><th>Връзки</th><th>Окачвачи</th><th>Дюбели</th><th>Удължители</th><th>Действия</th>
             </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <p id="table-note"></p>
-    </section>
-
-    <section class="panel table-panel">
-      <h2>Таблица с константи и лимити (D113)</h2>
-      <div class="table-scroll">
-        <table id="constants-table">
-          <thead>
-            <tr><th>Константа</th><th>Стойност</th><th>Описание</th></tr>
           </thead>
           <tbody></tbody>
         </table>
