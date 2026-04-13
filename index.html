@@ -104,7 +104,15 @@
     </section>
 
     <section class="panel">
-      <h2>Визуализация</h2>
+      <div class="panel-head">
+        <h2>Визуализация</h2>
+        <div class="zoom-controls">
+          <button id="zoom-out" class="secondary" type="button" aria-label="Намали">−</button>
+          <button id="zoom-in" type="button" aria-label="Увеличи">+</button>
+          <button id="zoom-reset" class="secondary" type="button">100%</button>
+          <span id="zoom-indicator">100%</span>
+        </div>
+      </div>
       <div class="scheme-wrap"><svg id="scheme" viewBox="0 0 840 420"></svg></div>
       <div id="scheme-legend" class="scheme-legend"></div>
     </section>
