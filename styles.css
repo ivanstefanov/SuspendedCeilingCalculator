@@ -22,7 +22,7 @@ button.danger { background: #b12020; }
 .scheme-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: .8rem; align-items: start; }
 .scheme-wrap { border: 1px solid #d8e3ef; border-radius: 8px; overflow: auto; }
 #scheme { width: 100%; height: 360px; background: #f7fbff; }
-.scheme-legend { padding: .6rem .7rem; border: 1px solid #d8e3ef; border-radius: 8px; background: #f9fcff; }
+.scheme-legend { margin-top: .7rem; padding: .6rem .7rem; border: 1px solid #d8e3ef; border-radius: 8px; background: #f9fcff; }
 .legend-row { font-size: .9rem; line-height: 1.45; }
 .legend-title { font-weight: 700; }
 .table-scroll { overflow: auto; }
