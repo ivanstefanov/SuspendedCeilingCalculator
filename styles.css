@@ -108,6 +108,16 @@ th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; w
 thead th { background: var(--primary); color: #fff; position: sticky; top: 0; }
 tfoot td { background: #eaf3ff; font-weight: 700; }
 tr:nth-child(even) td { background: #f7fbff; }
+
+.room-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.room-link:hover {
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
 .table-actions { margin-top: 0; margin-bottom: .6rem; }
 .table-actions button,
 .table-actions .import-label {
@@ -133,7 +143,6 @@ tr:nth-child(even) td { background: #f7fbff; }
   font-size: .9rem;
 }
 .reserve-controls { margin-top: .7rem; max-width: 240px; }
-.actions button[title="Преглед"],
 .actions button[title="Редакция"],
 .actions button[title="Изтрий"] {
   width: 2.1rem;

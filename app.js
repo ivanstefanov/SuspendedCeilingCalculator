@@ -327,7 +327,7 @@ function renderTable() {
     totals.drywallScrews += r.drywallScrews;
     totals.extensionsTotal += r.extensionsTotal;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="view" title="Преглед">👁️</button><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
+    tr.innerHTML = `<td><a href="#" class="room-link" data-id="${room.id}" data-action="edit">${room.name}</a></td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
     el.tbody.appendChild(tr);
   });
   el.tableFoot.innerHTML = `
@@ -674,21 +674,13 @@ document.getElementById("cancel-room").addEventListener("click", () => {
 });
 
 el.tbody.addEventListener("click", (event) => {
-  const button = event.target.closest("button");
-  if (!button) return;
-  const id = button.dataset.id;
+  const actionElement = event.target.closest("button, a[data-action]");
+  if (!actionElement) return;
+  if (actionElement.tagName === "A") event.preventDefault();
+  const id = actionElement.dataset.id;
   const room = state.rooms.find((item) => item.id === id);
   if (!room) return;
-  if (button.dataset.action === "view") {
-    state.activeRoomId = id;
-    areaDirty = !!room.overrides?.area;
-    bindRoomToForm(room);
-    renderScheme(room);
-    renderFormulas(room);
-    saveState();
-    return;
-  }
-  if (button.dataset.action === "edit") {
+  if (actionElement.dataset.action === "edit") {
     state.activeRoomId = id;
     areaDirty = !!room.overrides?.area;
     render();
