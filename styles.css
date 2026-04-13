@@ -19,10 +19,18 @@ button.danger { background: #b12020; }
 .tab { background: #e4eef8; color: #17324d; }
 .tab.active { background: #0f4f88; color: #fff; }
 .tab.add { background: #2f9e44; color: #fff; }
+.scheme-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: .8rem; align-items: start; }
 .scheme-wrap { border: 1px solid #d8e3ef; border-radius: 8px; overflow: auto; }
 #scheme { width: 100%; height: 360px; background: #f7fbff; }
+.scheme-legend { padding: .6rem .7rem; border: 1px solid #d8e3ef; border-radius: 8px; background: #f9fcff; }
+.legend-row { font-size: .9rem; line-height: 1.45; }
+.legend-title { font-weight: 700; }
 .table-scroll { overflow: auto; }
 #rooms-table { border-collapse: collapse; min-width: 1600px; width: 100%; }
 th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; white-space: nowrap; }
 thead th { background: #0f4f88; color: #fff; position: sticky; top: 0; }
 tr:nth-child(even) td { background: #f7fbff; }
+
+@media (max-width: 980px) {
+  .scheme-layout { grid-template-columns: 1fr; }
+}

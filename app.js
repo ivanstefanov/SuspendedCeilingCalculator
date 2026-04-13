@@ -65,6 +65,7 @@ const el = {
   roomTabs: document.getElementById("room-tabs"),
   tbody: document.querySelector("#rooms-table tbody"),
   scheme: document.getElementById("scheme"),
+  schemeLegend: document.getElementById("scheme-legend"),
 };
 
 let areaDirty = false;
@@ -262,7 +263,7 @@ function renderTable() {
   state.rooms.forEach((room) => {
     const r = calc(room);
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${room.a}</td><td>${room.b}</td><td>${room.c}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsTotal}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
+    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsTotal}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
     el.tbody.appendChild(tr);
   });
 }
@@ -278,7 +279,6 @@ function renderScheme(room) {
   const yScale = h / r.W;
 
   let svg = `<rect x="${pad}" y="${pad}" width="${w}" height="${h}" fill="#eef6ff" stroke="#13588f" stroke-width="2" />`;
-  svg += `<text x="${pad}" y="24" fill="#1b456f">${room.name}: W=${r.W}cm, L=${r.L}cm, offset=${state.constants.offset}cm</text>`;
 
   mountingPos.forEach((p) => {
     const x = pad + p * xScale;
@@ -293,6 +293,18 @@ function renderScheme(room) {
   });
 
   el.scheme.innerHTML = svg;
+  const legendRows = [
+    ["W (широчина)", `${r.W.toFixed(0)} cm`],
+    ["L (дължина)", `${r.L.toFixed(0)} cm`],
+    ["a (Разстояние между окачвачите)", `${room.a} mm`],
+    ["b (Разстояние между монтажните профили)", `${room.b} mm`],
+    ["c (Разстояние между носещите профили)", `${room.c} mm`],
+    ["o (първоначален offset)", `${state.constants.offset} cm`],
+    ["Клас на натоварване", `${room.loadClass} kN/m²`],
+  ];
+  el.schemeLegend.innerHTML = legendRows
+    .map(([title, value]) => `<div class="legend-row"><span class="legend-title">${title}:</span> <span>${value}</span></div>`)
+    .join("");
 }
 
 function updateRoomFromForm() {
