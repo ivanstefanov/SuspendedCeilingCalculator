@@ -67,6 +67,7 @@ const el = {
   saveRoom: document.getElementById("save-room"),
   cancelRoom: document.getElementById("cancel-room"),
   tbody: document.querySelector("#rooms-table tbody"),
+  tableFoot: document.getElementById("rooms-table-foot"),
   totalsPanel: document.getElementById("totals-panel"),
   reservePercent: document.getElementById("reserve-percent"),
   formulas: document.getElementById("formulas"),
@@ -291,12 +292,67 @@ function bindRoomToForm(room) {
 
 function renderTable() {
   el.tbody.innerHTML = "";
+  const totals = {
+    area: 0,
+    bearingCount: 0,
+    mountingCount: 0,
+    bearingLengthTotal: 0,
+    mountingLengthTotal: 0,
+    cdTotalProfiles: 0,
+    udProfiles: 0,
+    crossConnectors: 0,
+    hangersTotal: 0,
+    anchorsUd: 0,
+    anchorsHangers: 0,
+    anchorsTotal: 0,
+    metalScrews: 0,
+    drywallScrews: 0,
+    extensionsTotal: 0,
+  };
   state.rooms.forEach((room) => {
     const r = calc(room);
+    totals.area += Number(room.area);
+    totals.bearingCount += r.bearingCount;
+    totals.mountingCount += r.mountingCount;
+    totals.bearingLengthTotal += r.bearingLengthTotal;
+    totals.mountingLengthTotal += r.mountingLengthTotal;
+    totals.cdTotalProfiles += r.cdTotalProfiles;
+    totals.udProfiles += r.udProfiles;
+    totals.crossConnectors += r.crossConnectors;
+    totals.hangersTotal += r.hangersTotal;
+    totals.anchorsUd += r.anchorsUd;
+    totals.anchorsHangers += r.anchorsHangers;
+    totals.anchorsTotal += r.anchorsTotal;
+    totals.metalScrews += r.metalScrews;
+    totals.drywallScrews += r.drywallScrews;
+    totals.extensionsTotal += r.extensionsTotal;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="view" title="Преглед">👁️</button><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
     el.tbody.appendChild(tr);
   });
+  el.tableFoot.innerHTML = `
+    <tr class="total-row">
+      <td><strong>Total</strong></td>
+      <td>—</td>
+      <td>—</td>
+      <td><strong>${totals.area.toFixed(2)}</strong></td>
+      <td><strong>${totals.bearingCount}</strong></td>
+      <td><strong>${totals.mountingCount}</strong></td>
+      <td><strong>${totals.bearingLengthTotal.toFixed(2)}</strong></td>
+      <td><strong>${totals.mountingLengthTotal.toFixed(2)}</strong></td>
+      <td><strong>${totals.cdTotalProfiles}</strong></td>
+      <td><strong>${totals.udProfiles}</strong></td>
+      <td><strong>${totals.crossConnectors}</strong></td>
+      <td><strong>${totals.hangersTotal}</strong></td>
+      <td><strong>${totals.anchorsUd}</strong></td>
+      <td><strong>${totals.anchorsHangers}</strong></td>
+      <td><strong>${totals.anchorsTotal}</strong></td>
+      <td><strong>${totals.metalScrews}</strong></td>
+      <td><strong>${totals.drywallScrews}</strong></td>
+      <td><strong>${totals.extensionsTotal}</strong></td>
+      <td>—</td>
+    </tr>
+  `;
 }
 
 function renderTotals() {
@@ -319,13 +375,13 @@ function renderTotals() {
   const withReserve = (value) => Math.ceil(value * multiplier);
   el.totalsPanel.innerHTML = `
     <div class="totals-grid">
-      <div><strong>Тотал CD бр.:</strong> ${withReserve(totals.cd)}</div>
-      <div><strong>Тотал UD бр.:</strong> ${withReserve(totals.ud)}</div>
-      <div><strong>Тотал Връзки:</strong> ${withReserve(totals.connectors)}</div>
-      <div><strong>Тотал Окачвачи:</strong> ${withReserve(totals.hangers)}</div>
-      <div><strong>Тотал Дюбели:</strong> ${withReserve(totals.anchors)}</div>
-      <div><strong>Тотал Винтове:</strong> ${withReserve(totals.screws)}</div>
-      <div><strong>Тотал Удължители:</strong> ${withReserve(totals.extensions)}</div>
+      <div><strong>Изчислен резерв CD бр.:</strong> ${withReserve(totals.cd)}</div>
+      <div><strong>Изчислен резерв UD бр.:</strong> ${withReserve(totals.ud)}</div>
+      <div><strong>Изчислен резерв Връзки:</strong> ${withReserve(totals.connectors)}</div>
+      <div><strong>Изчислен резерв Окачвачи:</strong> ${withReserve(totals.hangers)}</div>
+      <div><strong>Изчислен резерв Дюбели:</strong> ${withReserve(totals.anchors)}</div>
+      <div><strong>Изчислен резерв Винтове:</strong> ${withReserve(totals.screws)}</div>
+      <div><strong>Изчислен резерв Удължители:</strong> ${withReserve(totals.extensions)}</div>
     </div>
   `;
 }
@@ -398,6 +454,7 @@ function renderScheme(room) {
   const legendRows = [
     ["W (широчина)", `${r.W.toFixed(0)} cm`],
     ["L (дължина)", `${r.L.toFixed(0)} cm`],
+    ["Клас на натоварване", `${room.loadClass} kN/m²`],
     ["a (Разстояние между окачвачите)", `${room.a} mm`],
     ["b (Разстояние между монтажните профили)", `${room.b} mm`],
     ["c (Разстояние между носещите профили)", `${room.c} mm`],
@@ -412,7 +469,6 @@ function renderScheme(room) {
     ["Монтажни", formatLegendPositions(mountingLinePositionsCm)],
     ["Окачвачи", formatLegendPositions(hangerPositionsCm)],
     ["Удължители", formatLegendPositions(extensionPoints)],
-    ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
     .map(([title, value]) => `<div class="legend-row"><span class="legend-title">${title}:</span> <span>${value}</span></div>`)
@@ -429,10 +485,9 @@ function formatLegendPositions(positions) {
 }
 
 function withBoldResult(text) {
-  const parts = text.split(" = ");
-  if (parts.length < 2) return text;
-  const finalPart = parts.pop();
-  return `${parts.join(" = ")} = <span class="formula-result">${finalPart}</span>`;
+  const [left, ...rightParts] = text.split(" = ");
+  if (!rightParts.length) return text;
+  return `<span class="formula-result">${left}</span> = ${rightParts.join(" = ")}`;
 }
 
 function renderFormulas(room) {
@@ -614,12 +669,6 @@ document.getElementById("cancel-room").addEventListener("click", () => {
   el.width.value = "";
   el.length.value = "";
   el.area.value = "";
-  el.load.value = LOAD_CLASSES[0];
-  el.fire.value = "false";
-  el.board.value = "12.5_or_2x12.5";
-  el.a.value = "";
-  el.b.value = "";
-  el.c.value = "";
   el.validation.textContent = "";
   areaDirty = false;
 });
