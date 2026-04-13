@@ -15,6 +15,9 @@
   <main>
     <section class="panel">
       <h2 id="form-title">Стаи</h2>
+      <div class="actions room-header-actions">
+        <button id="new-room" type="button">Нова стая</button>
+      </div>
       <form id="room-form" class="grid">
         <input type="hidden" id="room-id" />
         <label>Име
@@ -109,7 +112,7 @@
       </form>
     </section>
 
-    <section class="panel">
+    <section class="panel visualization-panel">
       <div class="panel-head">
         <h2>Визуализация</h2>
         <div class="zoom-controls">
@@ -121,13 +124,16 @@
         </div>
       </div>
       <div class="scheme-wrap"><svg id="scheme" viewBox="0 0 840 420"></svg></div>
+    </section>
+
+    <section class="panel legend-panel">
+      <h2>Легенда</h2>
       <div id="scheme-legend" class="scheme-legend"></div>
     </section>
 
     <section class="panel table-panel">
       <h2>Резултати по стаи</h2>
       <div class="actions table-actions">
-        <button id="new-room" title="Нова стая" aria-label="Нова стая">➕</button>
         <label class="import-label" title="Импорт JSON">📥 Импорт JSON<input id="import-json" type="file" accept="application/json" /></label>
         <button id="export-json" title="Експорт JSON">📤 Експорт JSON</button>
         <button id="export-excel" title="Експорт Excel">📊 Експорт Excel</button>

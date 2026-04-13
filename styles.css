@@ -41,8 +41,9 @@ main {
 .panel:nth-child(1),
 .panel:nth-child(2),
 .panel:nth-child(3) { grid-column: span 4; }
-.panel:nth-child(4),
-.panel:nth-child(5) { grid-column: 1 / -1; }
+.visualization-panel { grid-column: span 9; }
+.legend-panel { grid-column: span 3; }
+.table-panel { grid-column: 1 / -1; }
 
 h2 { margin-top: 0; margin-bottom: .8rem; font-size: 1.05rem; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: .8rem; flex-wrap: wrap; }
@@ -68,6 +69,7 @@ button.secondary { background: var(--secondary); }
 button.danger { background: var(--danger); }
 
 .actions { display: flex; gap: .5rem; margin-top: .8rem; flex-wrap: wrap; }
+.room-header-actions { margin-top: 0; margin-bottom: .6rem; }
 .validation { margin: .6rem 0 0; color: var(--danger); font-weight: 600; }
 .import-label { background: var(--primary); color: #fff; border-radius: 10px; padding: .55rem .65rem; cursor: pointer; }
 .import-label input { display: none; }
@@ -89,7 +91,7 @@ button.danger { background: var(--danger); }
   transform-origin: top left;
 }
 
-.scheme-legend { margin-top: .7rem; padding: .7rem .8rem; border: 1px solid var(--border); border-radius: 10px; background: #f9fcff; }
+.scheme-legend { padding: .7rem .8rem; border: 1px solid var(--border); border-radius: 10px; background: #f9fcff; }
 .legend-row { font-size: .9rem; line-height: 1.45; }
 .legend-title { font-weight: 700; }
 .legend-swatch-row { display: flex; align-items: center; gap: .5rem; margin: .15rem 0; }
@@ -128,13 +130,16 @@ tr:nth-child(even) td { background: #f7fbff; }
 .formulas-group:last-child { margin-bottom: 0; }
 .formulas-group h4 { margin: 0 0 .3rem; font-size: .9rem; color: var(--primary); }
 .formula-row { font-size: .85rem; line-height: 1.4; margin: .12rem 0; }
+.formula-result { font-weight: 700; color: #113f6b; }
 
 @media (max-width: 1200px) {
   .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3) { grid-column: span 6; }
+  .visualization-panel,
+  .legend-panel { grid-column: 1 / -1; }
 }
 
 @media (max-width: 860px) {
   main { grid-template-columns: 1fr; }
-  .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3), .panel:nth-child(4), .panel:nth-child(5) { grid-column: auto; }
+  .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3), .visualization-panel, .legend-panel, .table-panel { grid-column: auto; }
   #scheme { width: 760px; height: 380px; }
 }
