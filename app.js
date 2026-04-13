@@ -281,6 +281,7 @@ function renderScheme(room) {
   const xScale = w / r.L;
   const yScale = h / r.W;
   const bearingStroke = 2;
+  const hangerRadius = 4.5;
 
   let svg = `<rect x="${pad}" y="${pad}" width="${w}" height="${h}" fill="#eef6ff" stroke="#13588f" stroke-width="2" />`;
 
@@ -302,9 +303,11 @@ function renderScheme(room) {
     svg += `<text x="${pad + 2}" y="${y - 3}" fill="#1f5e93" font-size="10">${p.toFixed(0)}см</text>`;
 
     // Позиции на окачвачите върху носещите профили
-    hangerPos.forEach((hp) => {
+    hangerPos.forEach((hp, idx) => {
       const hx = pad + hp * xScale;
-      svg += `<circle cx="${hx}" cy="${y}" r="${bearingStroke / 2}" fill="#1b1b1b"/>`;
+      const labelYOffset = idx % 2 === 0 ? -9 : 15;
+      svg += `<circle cx="${hx}" cy="${y}" r="${hangerRadius}" fill="#1b1b1b"/>`;
+      svg += `<text x="${hx}" y="${y + labelYOffset}" fill="#1b1b1b" font-size="8.5" text-anchor="middle" stroke="#f7fbff" stroke-width="2" paint-order="stroke">${hp.toFixed(0)}см от 0</text>`;
     });
   });
 
@@ -321,8 +324,12 @@ function renderScheme(room) {
     ["b (Разстояние между монтажните профили)", `${room.b} mm`],
     ["c (Разстояние между носещите профили)", `${room.c} mm`],
     ["o (първоначален offset)", `${state.constants.offset} cm`],
-    ["Цветове/дебелини", "Зелено: монтажни CD; Синьо: носещи CD; Удебелено синьо: носещи линии"],
-    ["Тъмни кръгчета", `Окачвачи (Ø ${bearingStroke}px), позиции от стена: ${hangerPos.map((p) => p.toFixed(0)).join(", ")} cm`],
+    ["Елементи в схемата", `
+      <div class="legend-swatch-row"><span class="legend-swatch line mounting"></span><span>Монтажен CD профил</span></div>
+      <div class="legend-swatch-row"><span class="legend-swatch line bearing"></span><span>Носещ CD профил</span></div>
+      <div class="legend-swatch-row"><span class="legend-swatch point hanger"></span><span>Окачвач (позиция x см от началото на стената)</span></div>
+    `],
+    ["Окачвачи", `Ø ${hangerRadius.toFixed(1)}px; позиции от стена: ${hangerPos.map((p) => p.toFixed(0)).join(", ")} cm`],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
