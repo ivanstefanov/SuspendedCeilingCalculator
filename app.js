@@ -307,9 +307,27 @@ function renderScheme(room) {
       const hx = pad + hp * xScale;
       const labelYOffset = idx % 2 === 0 ? -9 : 15;
       svg += `<circle cx="${hx}" cy="${y}" r="${hangerRadius}" fill="#1b1b1b"/>`;
-      svg += `<text x="${hx}" y="${y + labelYOffset}" fill="#1b1b1b" font-size="8.5" text-anchor="middle" stroke="#f7fbff" stroke-width="2" paint-order="stroke">${hp.toFixed(0)}см от 0</text>`;
+      svg += `<text x="${hx}" y="${y + labelYOffset}" fill="#1b1b1b" font-size="8.5" text-anchor="middle" stroke="#f7fbff" stroke-width="2" paint-order="stroke">${hp.toFixed(0)}см</text>`;
     });
   });
+
+
+
+  const segmentLengthCm = state.constants.cdLength * 100;
+  if (r.L > segmentLengthCm) {
+    const extensionPoints = [];
+    for (let pos = segmentLengthCm; pos < r.L; pos += segmentLengthCm) extensionPoints.push(pos);
+
+    bearingPos.forEach((p) => {
+      const y = pad + p * yScale;
+      extensionPoints.forEach((ep, idx) => {
+        const x = pad + ep * xScale;
+        const textOffset = idx % 2 === 0 ? -11 : 16;
+        svg += `<line x1="${x}" y1="${y - 8}" x2="${x}" y2="${y + 8}" stroke="#d14a00" stroke-width="2"/>`;
+        svg += `<text x="${x}" y="${y + textOffset}" fill="#d14a00" font-size="8.5" text-anchor="middle" stroke="#f7fbff" stroke-width="2" paint-order="stroke">${ep.toFixed(0)}см</text>`;
+      });
+    });
+  }
 
   hangerPos.forEach((hp) => {
     const hx = pad + hp * xScale;
@@ -328,8 +346,11 @@ function renderScheme(room) {
       <div class="legend-swatch-row"><span class="legend-swatch line mounting"></span><span>Монтажен CD профил</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch line bearing"></span><span>Носещ CD профил</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch point hanger"></span><span>Окачвач (позиция x см от началото на стената)</span></div>
+      <div class="legend-swatch-row"><span class="legend-swatch line" style="background:#d14a00;height:2px"></span><span>Удължител (позиция x см от стената)</span></div>
     `],
-    ["Окачвачи", `Ø ${hangerRadius.toFixed(1)}px; позиции от стена: ${hangerPos.map((p) => p.toFixed(0)).join(", ")} cm`],
+    ["Носещи", `[${bearingPos.map((p) => p.toFixed(0)).join(", ")}]`],
+    ["Монтажни", `[${mountingPos.map((p) => p.toFixed(0)).join(", ")}]`],
+    ["Окачвачи", `[${hangerPos.map((p) => p.toFixed(0)).join(", ")}]`],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
@@ -547,6 +568,68 @@ document.getElementById("export-json").addEventListener("click", () => {
   link.click();
   URL.revokeObjectURL(link.href);
 });
+
+
+
+function xmlEscape(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function exportRoomsToExcel() {
+  const headers = [
+    "Стая", "X", "Y", "Площ", "Носещи CD (бр реда)", "Монтажни CD (бр реда)",
+    "Носещи m", "Монтажни m", "CD бр.", "UD бр.", "Връзки", "Окачвачи", "Дюбели", "Удължители",
+  ];
+
+  const rows = state.rooms.map((room) => {
+    const r = calc(room);
+    return [
+      room.name,
+      room.width,
+      room.length,
+      Number(room.area).toFixed(2),
+      r.bearingCount,
+      r.mountingCount,
+      r.bearingLengthTotal.toFixed(2),
+      r.mountingLengthTotal.toFixed(2),
+      r.cdTotalProfiles,
+      r.udProfiles,
+      r.crossConnectors,
+      r.hangersTotal,
+      r.anchorsTotal,
+      r.extensionsTotal,
+    ];
+  });
+
+  const sheetRows = [headers, ...rows]
+    .map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${xmlEscape(cell)}</Data></Cell>`).join("")}</Row>`)
+    .join("");
+
+  const workbook = `<?xml version="1.0" encoding="UTF-8"?>
+  <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+    xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:x="urn:schemas-microsoft-com:office:excel"
+    xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+    <Worksheet ss:Name="Стаи">
+      <Table>${sheetRows}</Table>
+    </Worksheet>
+  </Workbook>`;
+
+  const blob = new Blob([workbook], { type: "application/vnd.ms-excel" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "knauf-d113-stai.xls";
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+
+document.getElementById("export-excel").addEventListener("click", exportRoomsToExcel);
 
 document.getElementById("import-json").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
