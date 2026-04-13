@@ -297,9 +297,9 @@ function renderTable() {
 
 function renderScheme(room) {
   const r = calc(room);
-  const bearingPos = buildPositions(r.W, room.c);
-  const mountingPos = buildPositions(r.L, room.b);
-  const hangerPos = buildPositions(r.L, room.a);
+  const bearingLinePositionsCm = buildPositions(r.W, room.c);
+  const mountingLinePositionsCm = buildPositions(r.L, room.b);
+  const hangerPositionsCm = buildPositions(r.L, room.a);
   const extensionPoints = [];
   const pad = 40;
   const w = 760;
@@ -317,19 +317,19 @@ function renderScheme(room) {
   svg += `<text x="${pad - 34}" y="${pad + 4}" fill="#17324d" font-size="11">0 см</text>`;
   svg += `<text x="${pad - 42}" y="${pad + h}" fill="#17324d" font-size="11">${r.W.toFixed(0)} см</text>`;
 
-  mountingPos.forEach((p) => {
+  mountingLinePositionsCm.forEach((p) => {
     const x = pad + p * xScale;
     svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + h}" stroke="#2b9a42" stroke-width="1.5"/>`;
     svg += `<text x="${x + 2}" y="${pad + 12}" fill="#2b9a42" font-size="10">${p.toFixed(0)}см</text>`;
   });
 
-  bearingPos.forEach((p) => {
+  bearingLinePositionsCm.forEach((p) => {
     const y = pad + p * yScale;
     svg += `<line x1="${pad}" y1="${y}" x2="${pad + w}" y2="${y}" stroke="#1f5e93" stroke-width="${bearingStroke}"/>`;
     svg += `<text x="${pad + 2}" y="${y - 3}" fill="#1f5e93" font-size="10">${p.toFixed(0)}см</text>`;
 
     // Позиции на окачвачите върху носещите профили
-    hangerPos.forEach((hp, idx) => {
+    hangerPositionsCm.forEach((hp, idx) => {
       const hx = pad + hp * xScale;
       const labelYOffset = idx % 2 === 0 ? -9 : 15;
       svg += `<circle cx="${hx}" cy="${y}" r="${hangerRadius}" fill="#1b1b1b"/>`;
@@ -343,7 +343,7 @@ function renderScheme(room) {
   if (r.L > segmentLengthCm) {
     for (let pos = segmentLengthCm; pos < r.L; pos += segmentLengthCm) extensionPoints.push(pos);
 
-    bearingPos.forEach((p) => {
+    bearingLinePositionsCm.forEach((p) => {
       const y = pad + p * yScale;
       extensionPoints.forEach((ep, idx) => {
         const x = pad + ep * xScale;
@@ -354,7 +354,7 @@ function renderScheme(room) {
     });
   }
 
-  hangerPos.forEach((hp) => {
+  hangerPositionsCm.forEach((hp) => {
     const hx = pad + hp * xScale;
     svg += `<text x="${hx - 10}" y="${pad + h + 14}" fill="#1b1b1b" font-size="10">${hp.toFixed(0)}</text>`;
   });
@@ -373,10 +373,10 @@ function renderScheme(room) {
       <div class="legend-swatch-row"><span class="legend-swatch point hanger"></span><span>Окачвач (позиция x см от началото на стената)</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch line extension"></span><span>Удължител (вертикална позиция x см от стената)</span></div>
     `],
-    ["Носещи", `[${bearingPos.map((p) => p.toFixed(0)).join(", ")}]`],
-    ["Монтажни", `[${mountingPos.map((p) => p.toFixed(0)).join(", ")}]`],
-    ["Окачвачи", `[${hangerPos.map((p) => p.toFixed(0)).join(", ")}]`],
-    ["Удължители", `[${extensionPoints.map((p) => p.toFixed(0)).join(", ")}] (напр. [400, 800])`],
+    ["Носещи", formatLegendPositions(bearingLinePositionsCm)],
+    ["Монтажни", formatLegendPositions(mountingLinePositionsCm)],
+    ["Окачвачи", formatLegendPositions(hangerPositionsCm)],
+    ["Удължители", formatLegendPositions(extensionPoints)],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
@@ -386,6 +386,18 @@ function renderScheme(room) {
 
 function f2(value) {
   return Number(value).toFixed(2);
+}
+
+function formatLegendPositions(positions) {
+  if (!positions.length) return "няма";
+  return positions.map((p) => p.toFixed(0)).join(", ");
+}
+
+function withBoldResult(text) {
+  const parts = text.split(" = ");
+  if (parts.length < 2) return text;
+  const finalPart = parts.pop();
+  return `${parts.join(" = ")} = <span class="formula-result">${finalPart}</span>`;
 }
 
 function renderFormulas(room) {
@@ -425,12 +437,12 @@ function renderFormulas(room) {
     {
       title: "Формули за изчертаване на схемата",
       items: [
-        `bearingPos = [o, o + c/10, o + 2c/10, ... < W] = [${offset}, ${offset + room.c / 10}, ... < ${W}]`,
-        `mountingPos = [o, o + b/10, o + 2b/10, ... < L] = [${offset}, ${offset + room.b / 10}, ... < ${L}]`,
-        `hangerPos = [o, o + a/10, o + 2a/10, ... < L] = [${offset}, ${offset + room.a / 10}, ... < ${L}]`,
-        `xScale = 760 / L = 760 / ${L} = ${f2(760 / L)}`,
-        `yScale = 300 / W = 300 / ${W} = ${f2(300 / W)}`,
-        `x(line) = pad + p × xScale, y(line) = pad + p × yScale (pad = 40)`,
+        `Позиции на носещи линии (cm) = [offset, offset + c/10, ... < W] = [${offset}, ${offset + room.c / 10}, ... < ${W}]`,
+        `Позиции на монтажни линии (cm) = [offset, offset + b/10, ... < L] = [${offset}, ${offset + room.b / 10}, ... < ${L}]`,
+        `Позиции на окачвачи (cm) = [offset, offset + a/10, ... < L] = [${offset}, ${offset + room.a / 10}, ... < ${L}]`,
+        `Хоризонтален мащаб = 760 / L = 760 / ${L} = ${f2(760 / L)}`,
+        `Вертикален мащаб = 300 / W = 300 / ${W} = ${f2(300 / W)}`,
+        `Координати в SVG = x = pad + позиция × хоризонтален мащаб, y = pad + позиция × вертикален мащаб (pad = 40)`,
       ],
     },
   ];
@@ -440,7 +452,7 @@ function renderFormulas(room) {
     ${rows.map((group) => `
       <div class="formulas-group">
         <h4>${group.title}</h4>
-        ${group.items.map((item) => `<div class="formula-row">${item}</div>`).join("")}
+        ${group.items.map((item) => `<div class="formula-row">${withBoldResult(item)}</div>`).join("")}
       </div>
     `).join("")}
   `;
@@ -566,8 +578,18 @@ document.getElementById("cancel-room").addEventListener("click", () => {
   areaDirty = false;
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   if (room) {
-    room.overrides.area = false;
-    room.area = (room.width * room.length) / 10000;
+    const resetRoom = createRoom();
+    room.name = resetRoom.name;
+    room.width = resetRoom.width;
+    room.length = resetRoom.length;
+    room.area = resetRoom.area;
+    room.loadClass = resetRoom.loadClass;
+    room.fireProtection = resetRoom.fireProtection;
+    room.boardType = resetRoom.boardType;
+    room.a = resetRoom.a;
+    room.b = resetRoom.b;
+    room.c = resetRoom.c;
+    room.overrides = { ...resetRoom.overrides };
   }
   render();
 });
