@@ -1,6 +1,7 @@
-const STORAGE_KEY = "suspended-ceiling-rooms-v1";
+const STORAGE_KEY = "d113-calculator-v2";
+
 const LOAD_CLASSES = ["0.15", "0.30", "0.40", "0.50", "0.65"];
-const BOARD_TYPE_TO_B_SPACING = {
+const BOARD_TYPE_TO_B = {
   "12.5_silent": 400,
   "12.5_or_2x12.5": 500,
   "15_or_2x15": 550,
@@ -34,403 +35,437 @@ const KNAUF_TABLE = {
   },
 };
 
-const form = document.getElementById("room-form");
-const roomIdInput = document.getElementById("room-id");
-const xCmInput = document.getElementById("xCm");
-const yCmInput = document.getElementById("yCm");
-const areaInput = document.getElementById("areaM2");
-const nameInput = document.getElementById("name");
-const loadInput = document.getElementById("loadClass");
-const fireInput = document.getElementById("fireProtection");
-const cSpacingInput = document.getElementById("cSpacing");
-const hangerSpacingInput = document.getElementById("hangerSpacing");
-const cSpacingOptions = document.getElementById("cSpacingOptions");
-const hangerSpacingOptions = document.getElementById("hangerSpacingOptions");
-const mountSpacingInput = document.getElementById("mountSpacing");
-const edgeOffsetInput = document.getElementById("edgeOffset");
-const boardTypeInput = document.getElementById("boardType");
-const udDowelInput = document.getElementById("udDowelSpacing");
-const cdProfileLengthInput = document.getElementById("cdProfileLengthM");
-const udProfileLengthInput = document.getElementById("udProfileLengthM");
-const tbody = document.querySelector("#rooms-table tbody");
-const tableNote = document.getElementById("table-note");
-const constantsTbody = document.querySelector("#constants-table tbody");
-const scheme = document.getElementById("scheme");
+const state = loadState();
+if (!state.rooms.length) state.rooms.push(createRoom());
+if (!state.activeRoomId) state.activeRoomId = state.rooms[0].id;
+
+const el = {
+  constantsForm: document.getElementById("constants-form"),
+  cdLength: document.getElementById("const-cd-length"),
+  udLength: document.getElementById("const-ud-length"),
+  offset: document.getElementById("const-offset"),
+  udAnchor: document.getElementById("const-ud-anchor"),
+
+  formTitle: document.getElementById("form-title"),
+  roomId: document.getElementById("room-id"),
+  name: document.getElementById("room-name"),
+  width: document.getElementById("room-width"),
+  length: document.getElementById("room-length"),
+  area: document.getElementById("room-area"),
+  load: document.getElementById("room-load"),
+  fire: document.getElementById("room-fire"),
+  board: document.getElementById("room-board"),
+  a: document.getElementById("room-a"),
+  b: document.getElementById("room-b"),
+  c: document.getElementById("room-c"),
+  validation: document.getElementById("validation"),
+
+  saveRoom: document.getElementById("save-room"),
+  cancelRoom: document.getElementById("cancel-room"),
+  roomTabs: document.getElementById("room-tabs"),
+  tbody: document.querySelector("#rooms-table tbody"),
+  scheme: document.getElementById("scheme"),
+};
 
 let areaDirty = false;
-let rooms = loadRooms();
 
-function loadRooms() {
+function loadState() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    return {
+      rooms: Array.isArray(raw.rooms) ? raw.rooms : [],
+      constants: {
+        cdLength: Number(raw.constants?.cdLength) || 4,
+        udLength: Number(raw.constants?.udLength) || 4,
+        offset: Number(raw.constants?.offset) || 30,
+        udAnchorSpacing: Number(raw.constants?.udAnchorSpacing) || 625,
+      },
+      activeRoomId: raw.activeRoomId || "",
+    };
   } catch {
-    return [];
+    return {
+      rooms: [],
+      constants: { cdLength: 4, udLength: 4, offset: 30, udAnchorSpacing: 625 },
+      activeRoomId: "",
+    };
   }
 }
 
-function saveRooms() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function recalcArea() {
-  if (areaDirty) return;
-  const x = Number(xCmInput.value);
-  const y = Number(yCmInput.value);
-  if (!x || !y) return;
-  areaInput.value = ((x * y) / 10000).toFixed(2);
+function createRoom() {
+  const id = crypto.randomUUID();
+  const room = {
+    id,
+    name: "Стая",
+    width: 400,
+    length: 300,
+    area: 12,
+    loadClass: "0.30",
+    fireProtection: false,
+    boardType: "12.5_or_2x12.5",
+    a: 900,
+    b: 500,
+    c: 600,
+    overrides: { area: false, a: false, b: false, c: false },
+  };
+  applyAutoABC(room);
+  return room;
 }
 
-function pickKnaufParams(loadClass, fireProtection) {
-  const classIndex = LOAD_CLASSES.indexOf(loadClass);
+function applyAutoABC(room) {
+  const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType);
+  if (!room.overrides?.a) room.a = auto.a;
+  if (!room.overrides?.c) room.c = auto.c;
+  if (!room.overrides?.b) room.b = auto.b;
+}
+
+function getAutoABC(loadClass, fireProtection, boardType) {
+  const idx = LOAD_CLASSES.indexOf(loadClass);
   const table = KNAUF_TABLE[String(fireProtection)];
-  const sortedC = Object.keys(table).map(Number).sort((a, b) => b - a);
-  for (const c of sortedC) {
-    const a = table[c][classIndex];
-    if (a) return { cSpacingMm: c, hangerSpacingMm: a };
-  }
-  return { cSpacingMm: 500, hangerSpacingMm: 600 };
-}
-
-function buildPositionsMm(spanMm, spacingMm, firstOffsetMm = 300) {
-  if (spanMm <= firstOffsetMm * 2) return [spanMm / 2];
-  const positions = [];
-  const endLimit = spanMm - firstOffsetMm;
-  for (let pos = firstOffsetMm; pos <= endLimit; pos += spacingMm) {
-    positions.push(pos);
-  }
-  return positions.length ? positions : [spanMm / 2];
-}
-
-function getKnaufOptions(loadClass, fireProtection) {
-  const classIndex = LOAD_CLASSES.indexOf(loadClass);
-  const table = KNAUF_TABLE[String(fireProtection)];
-  const options = Object.entries(table)
-    .map(([c, values]) => ({ c: Number(c), a: values[classIndex] }))
-    .filter((row) => row.a)
-    .sort((left, right) => left.c - right.c);
-  return options;
-}
-
-function setDatalistOptions(el, values) {
-  el.innerHTML = values.map((value) => `<option value="${value}"></option>`).join("");
-}
-
-function refreshSpacingPresets(force = false) {
-  const options = getKnaufOptions(loadInput.value, fireInput.value === "true");
-  if (!options.length) return;
-
-  setDatalistOptions(cSpacingOptions, options.map((row) => row.c));
-  setDatalistOptions(hangerSpacingOptions, options.map((row) => row.a));
-
-  if (force || !cSpacingInput.value) cSpacingInput.value = options[0].c;
-  if (force || !hangerSpacingInput.value) hangerSpacingInput.value = options[0].a;
-}
-
-function ceilDiv(a, b) {
-  return Math.ceil(a / b);
-}
-
-function calcRoomMetrics(room) {
-  const xCm = Number(room.xCm);
-  const yCm = Number(room.yCm);
-  const areaM2 = Number(room.areaM2);
-  const W = Math.min(xCm, yCm) / 100;
-  const L = Math.max(xCm, yCm) / 100;
-
-  const fallback = pickKnaufParams(room.loadClass, room.fireProtection);
-  const cSpacingMm = Number(room.cSpacingMm || fallback.cSpacingMm);
-  const hangerSpacingMm = Number(room.hangerSpacingMm || fallback.hangerSpacingMm);
-  const bSpacingMm = Number(room.mountSpacingMm || 500);
-  const udDowelSpacing = Number(room.udDowelSpacingMm || 500);
-  const cdProfileLengthM = Number(room.cdProfileLengthM || 4);
-  const udProfileLengthM = Number(room.udProfileLengthM || 4);
-
-  const udNeededM = 2 * (W + L);
-  const udProfiles = ceilDiv(udNeededM, udProfileLengthM);
-
-  const edgeOffsetMm = Number(room.edgeOffsetMm ?? 300);
-  const firstCarrierOffsetMm = Math.max(0, cSpacingMm - edgeOffsetMm);
-  const primaryPositionsMm = buildPositionsMm(W * 1000, cSpacingMm, firstCarrierOffsetMm);
-  const primaryRows = primaryPositionsMm.length;
-  const primaryTotalM = primaryRows * L;
-  const primaryProfiles = ceilDiv(primaryTotalM, cdProfileLengthM);
-
-  const secondaryPositionsMm = buildPositionsMm(L * 1000, bSpacingMm, edgeOffsetMm);
-  const secondaryRows = secondaryPositionsMm.length;
-  const secondaryTotalM = secondaryRows * W;
-  const secondaryProfiles = ceilDiv(secondaryTotalM, cdProfileLengthM);
-
-  const totalCdM = primaryTotalM + secondaryTotalM;
-  const totalCdProfiles = primaryProfiles + secondaryProfiles;
-
-  const crossConnectors = primaryRows * secondaryRows;
-  const hangerPositionsMm = buildPositionsMm(L * 1000, hangerSpacingMm, edgeOffsetMm);
-  const directPerPrimary = hangerPositionsMm.length;
-  const directTotal = directPerPrimary * primaryRows;
-
-  const udDowels = Math.ceil((udNeededM * 1000) / udDowelSpacing);
-  const ceilingDowels = directTotal;
-  const totalMetalDowels = udDowels + ceilingDowels;
-
-  const extPrimary = Math.max(0, ceilDiv(L, cdProfileLengthM) - 1) * primaryRows;
-  const extSecondary = Math.max(0, ceilDiv(W, cdProfileLengthM) - 1) * secondaryRows;
-  const totalExt = extPrimary + extSecondary;
-
+  const sortedC = Object.keys(table).map(Number).sort((a, b) => a - b);
+  const firstValid = sortedC.find((c) => table[c][idx] != null) || 600;
   return {
-    xCm, yCm, areaM2,
-    wShortM: W,
-    lLongM: L,
-    udNeededM,
-    udProfiles,
-    primaryRows,
-    primaryTotalM,
-    primaryProfiles,
-    secondaryRows,
-    secondaryTotalM,
-    secondaryProfiles,
-    totalCdM,
-    totalCdProfiles,
-    crossConnectors,
-    directPerPrimary,
-    directTotal,
-    udDowels,
-    ceilingDowels,
-    totalMetalDowels,
-    extPrimary,
-    extSecondary,
-    totalExt,
-    cSpacingMm,
-    hangerSpacingMm,
-    bSpacingMm,
-    cdProfileLengthM,
-    udProfileLengthM,
-    firstCarrierOffsetMm,
-    edgeOffsetMm,
-    primaryPositionsMm,
-    secondaryPositionsMm,
-    hangerPositionsMm,
+    a: table[firstValid][idx] || 900,
+    c: firstValid,
+    b: BOARD_TYPE_TO_B[boardType] || 500,
   };
 }
 
-function format(n, digits = 2) {
-  return Number(n).toFixed(digits);
+function validateCombination(room) {
+  const idx = LOAD_CLASSES.indexOf(room.loadClass);
+  const table = KNAUF_TABLE[String(room.fireProtection)];
+  const aExpected = table[room.c]?.[idx];
+  const validB = Object.values(BOARD_TYPE_TO_B).includes(room.b);
+  return Boolean(aExpected && aExpected === room.a && validB);
+}
+
+function calc(room) {
+  const X = Number(room.width);
+  const Y = Number(room.length);
+  const W = Math.min(X, Y);
+  const L = Math.max(X, Y);
+  const offset = state.constants.offset;
+
+  const bearingCount = Math.ceil((W - offset) / (room.c / 10)) + 1;
+  const bearingLengthTotal = bearingCount * (L / 100);
+  const bearingProfiles = Math.ceil(bearingLengthTotal / state.constants.cdLength);
+
+  const mountingCount = Math.ceil((L - offset) / (room.b / 10)) + 1;
+  const mountingLengthTotal = mountingCount * (W / 100);
+  const mountingProfiles = Math.ceil(mountingLengthTotal / state.constants.cdLength);
+
+  const cdTotalLength = bearingLengthTotal + mountingLengthTotal;
+  const cdTotalProfiles = bearingProfiles + mountingProfiles;
+
+  const crossConnectors = bearingCount * mountingCount;
+  const hangersPerBearing = Math.ceil((L - offset) / (room.a / 10)) + 1;
+  const hangersTotal = bearingCount * hangersPerBearing;
+
+  const udTotalLength = (2 * (X + Y)) / 100;
+  const udProfiles = Math.ceil(udTotalLength / state.constants.udLength);
+
+  const anchorsUd = Math.ceil(udTotalLength / (state.constants.udAnchorSpacing / 1000));
+  const anchorsTotal = anchorsUd + hangersTotal;
+
+  const extBearing = bearingCount * (Math.ceil((L / 100) / state.constants.cdLength) - 1);
+  const extMounting = mountingCount * (Math.ceil((W / 100) / state.constants.cdLength) - 1);
+  const extensionsTotal = extBearing + extMounting;
+
+  return {
+    W,
+    L,
+    bearingCount,
+    mountingCount,
+    bearingLengthTotal,
+    mountingLengthTotal,
+    bearingProfiles,
+    mountingProfiles,
+    cdTotalLength,
+    cdTotalProfiles,
+    crossConnectors,
+    hangersPerBearing,
+    hangersTotal,
+    udTotalLength,
+    udProfiles,
+    anchorsUd,
+    anchorsTotal,
+    extensionsTotal,
+  };
+}
+
+function buildPositions(limitCm, spacingMm) {
+  const out = [];
+  for (let pos = state.constants.offset; pos <= limitCm; pos += spacingMm / 10) out.push(pos);
+  return out;
+}
+
+function render() {
+  el.cdLength.value = state.constants.cdLength;
+  el.udLength.value = state.constants.udLength;
+  el.offset.value = state.constants.offset;
+  el.udAnchor.value = state.constants.udAnchorSpacing;
+
+  renderTabs();
+  renderTable();
+  const active = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (active) {
+    bindRoomToForm(active);
+    renderScheme(active);
+  }
+  saveState();
+}
+
+function renderTabs() {
+  el.roomTabs.innerHTML = "";
+  state.rooms.forEach((room) => {
+    const b = document.createElement("button");
+    b.className = room.id === state.activeRoomId ? "tab active" : "tab";
+    b.textContent = room.name;
+    b.onclick = () => { state.activeRoomId = room.id; areaDirty = !!room.overrides?.area; render(); };
+    el.roomTabs.appendChild(b);
+  });
+  const add = document.createElement("button");
+  add.className = "tab add";
+  add.textContent = "+ Нова стая";
+  add.onclick = () => {
+    const room = createRoom();
+    room.name = `Стая ${state.rooms.length + 1}`;
+    state.rooms.push(room);
+    state.activeRoomId = room.id;
+    areaDirty = false;
+    render();
+  };
+  el.roomTabs.appendChild(add);
+}
+
+function bindRoomToForm(room) {
+  el.formTitle.textContent = `Редакция: ${room.name}`;
+  el.roomId.value = room.id;
+  el.name.value = room.name;
+  el.width.value = room.width;
+  el.length.value = room.length;
+  el.area.value = room.area;
+  el.load.value = room.loadClass;
+  el.fire.value = String(room.fireProtection);
+  el.board.value = room.boardType;
+  el.a.value = room.a;
+  el.b.value = room.b;
+  el.c.value = room.c;
+  el.validation.textContent = validateCombination(room) ? "" : "Невалидна комбинация според Knauf D113";
 }
 
 function renderTable() {
-  tbody.innerHTML = "";
-  rooms.forEach((room) => {
-    const m = calcRoomMetrics(room);
+  el.tbody.innerHTML = "";
+  state.rooms.forEach((room) => {
+    const r = calc(room);
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${room.name}</td><td>${m.xCm}</td><td>${m.yCm}</td><td>${format(m.areaM2)}</td><td>${format(m.wShortM)}</td><td>${format(m.lLongM)}</td>
-      <td>${format(m.udNeededM)}</td><td>${m.udProfiles}</td><td>${m.primaryRows}</td><td>${format(m.primaryTotalM)}</td>
-      <td>${m.primaryProfiles}</td><td>${m.secondaryRows}</td><td>${format(m.secondaryTotalM)}</td><td>${m.secondaryProfiles}</td>
-      <td>${format(m.totalCdM)}</td><td>${m.totalCdProfiles}</td><td>${m.crossConnectors}</td><td>${m.directPerPrimary}</td>
-      <td>${m.directTotal}</td><td>${m.udDowels}</td><td>${m.ceilingDowels}</td><td>${m.totalMetalDowels}</td>
-      <td>${m.extPrimary}</td><td>${m.extSecondary}</td><td>${m.totalExt}</td>
-      <td>до ${room.loadClass}</td><td>${room.fireProtection ? "Да" : "Не"}</td>
-      <td class="row-actions">
-        <button data-action="edit" data-id="${room.id}">Редакция</button>
-        <button data-action="delete" data-id="${room.id}" class="danger">Изтрий</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
+    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${room.a}</td><td>${room.b}</td><td>${room.c}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsTotal}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
+    el.tbody.appendChild(tr);
+  });
+}
+
+function renderScheme(room) {
+  const r = calc(room);
+  const bearingPos = buildPositions(r.W, room.c);
+  const mountingPos = buildPositions(r.L, room.b);
+  const pad = 40;
+  const w = 760;
+  const h = 300;
+  const xScale = w / r.L;
+  const yScale = h / r.W;
+
+  let svg = `<rect x="${pad}" y="${pad}" width="${w}" height="${h}" fill="#eef6ff" stroke="#13588f" stroke-width="2" />`;
+  svg += `<text x="${pad}" y="24" fill="#1b456f">${room.name}: W=${r.W}cm, L=${r.L}cm, offset=${state.constants.offset}cm</text>`;
+
+  mountingPos.forEach((p) => {
+    const x = pad + p * xScale;
+    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + h}" stroke="#2b9a42" stroke-width="1.5"/>`;
+    svg += `<text x="${x + 2}" y="${pad + 12}" fill="#2b9a42" font-size="10">${p.toFixed(0)}см</text>`;
   });
 
-  tableNote.textContent = "Бележка: c и a се префилват по таблица Knauf според натоварване/пожарозащита, b се предлага според типа плоскост. За D113: първи и последен носещ CD са на (c - 30) мм от стените. Броят профили се закръгля винаги нагоре.";
+  bearingPos.forEach((p) => {
+    const y = pad + p * yScale;
+    svg += `<line x1="${pad}" y1="${y}" x2="${pad + w}" y2="${y}" stroke="#1f5e93" stroke-width="2"/>`;
+    svg += `<text x="${pad + 2}" y="${y - 3}" fill="#1f5e93" font-size="10">${p.toFixed(0)}см</text>`;
+  });
 
-  const selected = rooms[0];
-  if (selected) renderScheme(calcRoomMetrics(selected), selected.name);
-  else scheme.innerHTML = "<text x='20' y='40' fill='#3f5972'>Добавете стая, за да видите схема.</text>";
+  el.scheme.innerHTML = svg;
 }
 
-function renderScheme(m, roomName) {
-  const w = 800;
-  const h = 420;
-  const pad = 40;
-  const rw = w - pad * 2;
-  const rh = h - pad * 2;
-  const primaryCount = m.primaryRows;
-  const secondaryCount = m.secondaryRows;
-  let svg = `
-    <rect x="${pad}" y="${pad}" width="${rw}" height="${rh}" fill="#d9ecff" stroke="#0f4f88" stroke-width="3" />
-    <text x="${pad}" y="26" fill="#0f4f88" font-size="14">Стая: ${roomName}</text>
-    <text x="${pad + 220}" y="26" fill="#0f4f88" font-size="14">W=${format(m.wShortM)} m, L=${format(m.lLongM)} m</text>
-    <text x="${pad + 325}" y="26" fill="#0f4f88" font-size="14">c=${m.cSpacingMm} мм (разстояние между носещите профили), b=${m.bSpacingMm} мм (разстояние между монтажните профили), a=${m.hangerSpacingMm} мм (разстояние между окачвачите)</text>
-    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи/последен носещ CD: c - ${m.edgeOffsetMm} = ${m.firstCarrierOffsetMm} мм</text>
-  `;
+function updateRoomFromForm() {
+  const room = state.rooms.find((r) => r.id === el.roomId.value);
+  if (!room) return;
+  room.name = el.name.value.trim() || "Стая";
+  room.width = Number(el.width.value);
+  room.length = Number(el.length.value);
+  room.area = Number(el.area.value);
+  room.loadClass = el.load.value;
+  room.fireProtection = el.fire.value === "true";
+  room.boardType = el.board.value;
+  room.a = Number(el.a.value);
+  room.b = Number(el.b.value);
+  room.c = Number(el.c.value);
 
-  const primaryScale = rh / (m.wShortM * 1000);
-  const secondaryScale = rw / (m.lLongM * 1000);
+  applyAutoABC(room);
+  if (!room.overrides.area && room.width && room.length) room.area = (room.width * room.length) / 10000;
+  el.validation.textContent = validateCombination(room) ? "" : "Невалидна комбинация според Knauf D113";
+}
 
-  for (let i = 0; i < primaryCount; i++) {
-    const positionMm = m.primaryPositionsMm[i];
-    const y = pad + positionMm * primaryScale;
-    svg += `<line x1="${pad}" y1="${y}" x2="${pad + rw}" y2="${y}" stroke="#284e7a" stroke-width="2.5" />`;
-    svg += `<text x="${pad + 8}" y="${y - 6}" fill="#1f3b5c" font-size="11">${Math.round(positionMm / 10)} см</text>`;
+[el.width, el.length].forEach((input) => input.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (!room) return;
+  room.width = Number(el.width.value);
+  room.length = Number(el.length.value);
+  if (!areaDirty && room.width && room.length) {
+    room.area = (room.width * room.length) / 10000;
+    el.area.value = room.area.toFixed(2);
   }
+  render();
+}));
 
-  for (let i = 0; i < secondaryCount; i++) {
-    const positionMm = m.secondaryPositionsMm[i];
-    const x = pad + positionMm * secondaryScale;
-    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + rh}" stroke="#2f9e44" stroke-width="1.7" />`;
-    svg += `<text x="${x + 4}" y="${pad + 14}" fill="#1f7a34" font-size="10">${Math.round(positionMm / 10)} см</text>`;
-  }
-
-  svg += `
-    <line x1="${pad + 6}" y1="${pad + 30}" x2="${pad + 6}" y2="${h - pad - 30}" stroke="#de8f00" stroke-dasharray="5,4" stroke-width="1.5"/>
-    <line x1="${pad + rw - 6}" y1="${pad + 30}" x2="${pad + rw - 6}" y2="${h - pad - 30}" stroke="#de8f00" stroke-dasharray="5,4" stroke-width="1.5"/>
-  `;
-  scheme.innerHTML = svg;
-}
-
-function resetForm() {
-  form.reset();
-  roomIdInput.value = "";
-  areaDirty = false;
-  document.getElementById("form-title").textContent = "Нова стая";
-  mountSpacingInput.value = 500;
-  edgeOffsetInput.value = 300;
-  boardTypeInput.value = "12.5_or_2x12.5";
-  udDowelInput.value = 500;
-  cdProfileLengthInput.value = 4;
-  udProfileLengthInput.value = 4;
-  refreshSpacingPresets(true);
-}
-
-form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const room = {
-    id: roomIdInput.value || crypto.randomUUID(),
-    name: nameInput.value.trim(),
-    xCm: Number(xCmInput.value),
-    yCm: Number(yCmInput.value),
-    areaM2: Number(areaInput.value),
-    loadClass: loadInput.value,
-    fireProtection: fireInput.value === "true",
-    cSpacingMm: Number(cSpacingInput.value),
-    hangerSpacingMm: Number(hangerSpacingInput.value),
-    boardType: boardTypeInput.value,
-    mountSpacingMm: Number(mountSpacingInput.value),
-    edgeOffsetMm: Number(edgeOffsetInput.value),
-    udDowelSpacingMm: Number(udDowelInput.value),
-    cdProfileLengthM: Number(cdProfileLengthInput.value),
-    udProfileLengthM: Number(udProfileLengthInput.value),
-  };
-
-  const idx = rooms.findIndex((r) => r.id === room.id);
-  if (idx >= 0) rooms[idx] = room;
-  else rooms.push(room);
-
-  saveRooms();
-  renderTable();
-  resetForm();
+el.area.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (!room) return;
+  room.overrides.area = true;
+  areaDirty = true;
+  room.area = Number(el.area.value);
+  render();
 });
 
-document.getElementById("cancel-edit").addEventListener("click", resetForm);
+el.load.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.loadClass = el.load.value;
+  room.overrides.a = false;
+  room.overrides.c = false;
+  applyAutoABC(room);
+  render();
+});
 
-tbody.addEventListener("click", (e) => {
-  const button = e.target.closest("button");
+el.fire.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.fireProtection = el.fire.value === "true";
+  room.overrides.a = false;
+  room.overrides.c = false;
+  applyAutoABC(room);
+  render();
+});
+
+el.board.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.boardType = el.board.value;
+  room.overrides.b = el.board.value === "custom";
+  applyAutoABC(room);
+  render();
+});
+
+el.a.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.a = true;
+  room.a = Number(el.a.value);
+  render();
+});
+el.b.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.b = true;
+  room.b = Number(el.b.value);
+  render();
+});
+el.c.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.c = true;
+  room.c = Number(el.c.value);
+  render();
+});
+
+el.constantsForm.addEventListener("input", () => {
+  state.constants.cdLength = Number(el.cdLength.value);
+  state.constants.udLength = Number(el.udLength.value);
+  state.constants.offset = Number(el.offset.value);
+  state.constants.udAnchorSpacing = Number(el.udAnchor.value);
+  render();
+});
+
+document.getElementById("save-room").addEventListener("click", () => {
+  updateRoomFromForm();
+  render();
+});
+
+document.getElementById("cancel-room").addEventListener("click", () => {
+  areaDirty = false;
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (room) {
+    room.overrides.area = false;
+    room.area = (room.width * room.length) / 10000;
+  }
+  render();
+});
+
+el.tbody.addEventListener("click", (event) => {
+  const button = event.target.closest("button");
   if (!button) return;
   const id = button.dataset.id;
-  const action = button.dataset.action;
-  const room = rooms.find((r) => r.id === id);
-  if (!room) return;
-
-  if (action === "delete") {
-    rooms = rooms.filter((r) => r.id !== id);
-    saveRooms();
-    renderTable();
+  if (button.dataset.action === "edit") {
+    state.activeRoomId = id;
+    render();
     return;
   }
-
-  roomIdInput.value = room.id;
-  nameInput.value = room.name;
-  xCmInput.value = room.xCm;
-  yCmInput.value = room.yCm;
-  areaInput.value = room.areaM2;
-  loadInput.value = room.loadClass;
-  fireInput.value = String(room.fireProtection);
-  refreshSpacingPresets(true);
-  cSpacingInput.value = room.cSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).cSpacingMm;
-  hangerSpacingInput.value = room.hangerSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).hangerSpacingMm;
-  boardTypeInput.value = room.boardType || "12.5_or_2x12.5";
-  mountSpacingInput.value = room.mountSpacingMm || 500;
-  edgeOffsetInput.value = room.edgeOffsetMm ?? 300;
-  udDowelInput.value = room.udDowelSpacingMm || 500;
-  cdProfileLengthInput.value = room.cdProfileLengthM || 4;
-  udProfileLengthInput.value = room.udProfileLengthM || 4;
-  areaDirty = true;
-  document.getElementById("form-title").textContent = `Редакция: ${room.name}`;
+  state.rooms = state.rooms.filter((room) => room.id !== id);
+  if (!state.rooms.length) state.rooms.push(createRoom());
+  state.activeRoomId = state.rooms[0].id;
+  render();
 });
-
-xCmInput.addEventListener("input", recalcArea);
-yCmInput.addEventListener("input", recalcArea);
-areaInput.addEventListener("input", () => { areaDirty = true; });
-loadInput.addEventListener("change", () => refreshSpacingPresets(true));
-fireInput.addEventListener("change", () => refreshSpacingPresets(true));
-boardTypeInput.addEventListener("change", () => {
-  if (boardTypeInput.value === "custom") return;
-  mountSpacingInput.value = BOARD_TYPE_TO_B_SPACING[boardTypeInput.value] || 500;
-});
-
-// Export / import
 
 document.getElementById("export-json").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(rooms, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "suspended-ceiling-rooms.json";
-  a.click();
-  URL.revokeObjectURL(url);
+  const payload = {
+    rooms: state.rooms.map((room) => ({
+      name: room.name,
+      width: room.width,
+      length: room.length,
+      area: room.area,
+      a: room.a,
+      b: room.b,
+      c: room.c,
+      loadClass: room.loadClass,
+      fireProtection: room.fireProtection,
+      boardType: room.boardType,
+      overrides: room.overrides,
+      results: calc(room),
+    })),
+    constants: state.constants,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "knauf-d113-export.json";
+  link.click();
+  URL.revokeObjectURL(link.href);
 });
 
-document.getElementById("import-json").addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
+document.getElementById("import-json").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
   if (!file) return;
-  const text = await file.text();
   try {
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) throw new Error("Очаква се масив от стаи");
-    rooms = parsed;
-    saveRooms();
-    renderTable();
-    resetForm();
+    const raw = JSON.parse(await file.text());
+    if (!Array.isArray(raw.rooms)) throw new Error("Очаква се масив rooms.");
+    state.rooms = raw.rooms.map((room) => ({ ...createRoom(), ...room, id: crypto.randomUUID() }));
+    if (raw.constants) state.constants = { ...state.constants, ...raw.constants };
+    state.activeRoomId = state.rooms[0]?.id || "";
+    render();
     alert("Импортът е успешен.");
-  } catch (err) {
-    alert(`Грешка при импорт: ${err.message}`);
+  } catch (error) {
+    alert(`Грешка: ${error.message}`);
   } finally {
-    e.target.value = "";
+    event.target.value = "";
   }
 });
 
 document.getElementById("clear-all").addEventListener("click", () => {
-  if (!confirm("Сигурни ли сте, че искате да изтриете всички стаи?")) return;
-  rooms = [];
-  saveRooms();
-  renderTable();
-  resetForm();
+  state.rooms = [createRoom()];
+  state.activeRoomId = state.rooms[0].id;
+  render();
 });
 
-function renderConstantsTable() {
-  const constants = [
-    { key: "b (монтажни CD)", value: "400 / 500 / 550 / 625 / 800 мм", description: "Според тип и дебелина на плоскостта." },
-    { key: "Първи/последен носещ CD", value: "c - отстояние от стени", description: "Оста е симетрично разположена от двете крайни стени." },
-    { key: "UD анкериране", value: "≤ 625 мм", description: "Закрепване на UD профила към периметъра." },
-    { key: "Влизане в UD", value: "≥ 20 мм", description: "Носещи/монтажни профили влизат минимум 20 мм в UD." },
-    { key: "Винтове към UD", value: "≤ 170 мм", description: "При носеща връзка по периметъра (вариант 2)." },
-    { key: "Макс. конзолно издаване", value: "≈ 100 мм", description: "Максимално издаване на облицовката към периметъра." },
-    { key: "Монтажни CD при мазилка ≥6 мм", value: "≤ 312.5 мм", description: "По-гъста подконструкция при допълнителен товар от мазилка." },
-    { key: "Мин. разст. окачвания по CD", value: "≥ 500 мм", description: "Разстоянието между две окачвания по един CD." },
-    { key: "Разпределен товар (без огнезащита)", value: "≤ 20 kg/m²", description: "По-големи товари се окачват към основния таван/помощна конструкция." },
-    { key: "Единичен товар към стоманена конструкция", value: "≤ 10 kg", description: "Максимум на точков товар към подконструкцията." },
-  ];
-  constantsTbody.innerHTML = constants
-    .map((item) => `<tr><td>${item.key}</td><td>${item.value}</td><td>${item.description}</td></tr>`)
-    .join("");
-}
-
-renderTable();
-refreshSpacingPresets(true);
-renderConstantsTable();
+render();
