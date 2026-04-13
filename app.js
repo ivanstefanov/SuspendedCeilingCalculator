@@ -1,4 +1,5 @@
 const STORAGE_KEY = "d113-calculator-v2";
+const isBrowser = typeof document !== "undefined";
 
 const LOAD_CLASSES = ["0.15", "0.30", "0.40", "0.50", "0.65"];
 const FIRE_LOAD_CLASSES = ["0.30", "0.40", "0.50", "0.65"];
@@ -11,40 +12,162 @@ const BOARD_TYPE_TO_B = {
   "25": 800,
 };
 
-const KNAUF_TABLE = {
-  false: {
-    500: [1200, 950, 850, 800, 750],
-    600: [1150, 900, 800, 750, 700],
-    700: [1100, 850, 750, 700, 650],
-    800: [1050, 800, 750, 700, null],
-    900: [1000, 800, 700, null, null],
-    1000: [950, 750, 700, null, null],
-    1100: [900, 750, null, null, null],
-    1200: [900, 700, null, null, null],
-    1250: [900, 650, null, null, null],
+const CONSTRUCTION_TYPES = {
+  D111: {
+    label: "D111.bg дървена подконструкция",
+    loadClasses: ["0.15", "0.30", "0.50"],
+    fireLoadClasses: [],
+    defaultLoadClass: "0.30",
+    defaultFireProtection: false,
+    defaultOffset: 30,
+    defaultUdAnchorSpacing: 1000,
+    table: {
+      false: {
+        500: [1200, 950, 800],
+        600: [1150, 900, 750],
+        700: [1050, 850, 700],
+        800: [1050, 800, null],
+        900: [1000, 800, null],
+        1000: [950, null, null],
+        1100: [900, null, null],
+        1200: [900, null, null],
+      },
+      true: {},
+    },
   },
-  true: {
-    500: [850, 750, 700, 600],
-    600: [800, 700, 650, 550],
-    700: [750, 650, 600, 550],
-    800: [700, 650, 600, null],
-    900: [700, 600, 550, null],
-    1000: [650, 600, 550, null],
-    1100: [650, 600, null, null],
-    1200: [600, 550, null, null],
-    1250: [600, null, null, null],
+  D112: {
+    label: "D112.bg метална подконструкция",
+    loadClasses: ["0.15", "0.30", "0.50", "0.65"],
+    fireLoadClasses: FIRE_LOAD_CLASSES,
+    defaultLoadClass: "0.30",
+    defaultFireProtection: false,
+    defaultOffset: 30,
+    defaultUdAnchorSpacing: 625,
+    table: {
+      false: {
+        500: [1200, 950, 800, 750],
+        600: [1150, 900, 750, 700],
+        700: [1100, 850, 700, 650],
+        800: [1050, 800, 700, null],
+        900: [1000, 800, null, null],
+        1000: [950, 750, null, null],
+        1100: [900, 750, null, null],
+        1200: [900, null, null, null],
+      },
+      true: {
+        500: [950, 850, 800, 700],
+        600: [900, 800, 700, 700],
+        700: [850, 750, 700, 650],
+        800: [800, null, null, null],
+      },
+    },
+  },
+  D113: {
+    label: "D113.bg метална подконструкция на едно ниво",
+    loadClasses: LOAD_CLASSES,
+    fireLoadClasses: FIRE_LOAD_CLASSES,
+    defaultLoadClass: "0.30",
+    defaultFireProtection: false,
+    defaultOffset: 30,
+    defaultUdAnchorSpacing: 625,
+    table: {
+      false: {
+        500: [1200, 950, 850, 800, 750],
+        600: [1150, 900, 800, 750, 700],
+        700: [1100, 850, 750, 700, 650],
+        800: [1050, 800, 750, 700, null],
+        900: [1000, 800, 700, null, null],
+        1000: [950, 750, 700, null, null],
+        1100: [900, 750, null, null, null],
+        1200: [900, 700, null, null, null],
+        1250: [900, 650, null, null, null],
+      },
+      true: {
+        500: [850, 750, 700, 600],
+        600: [800, 700, 650, 550],
+        700: [750, 650, 600, 550],
+        800: [700, 650, 600, null],
+        900: [700, 600, 550, null],
+        1000: [650, 600, 550, null],
+        1100: [650, 600, null, null],
+        1200: [600, 550, null, null],
+        1250: [600, null, null, null],
+      },
+    },
+  },
+  D116: {
+    label: "D116.bg UA/CD за големи отвори",
+    loadClasses: ["0.15", "0.30", "0.50", "0.65"],
+    fireLoadClasses: FIRE_LOAD_CLASSES,
+    defaultLoadClass: "0.30",
+    defaultFireProtection: false,
+    defaultOffset: 30,
+    defaultUdAnchorSpacing: 625,
+    table: {
+      false: {
+        500: [2600, 2050, 1600, 1200],
+        600: [2450, 1950, 1300, 1000],
+        700: [2300, 1850, 1100, 850],
+        800: [2200, 1650, 1000, null],
+        900: [2150, 1450, null, null],
+        1000: [2050, 1300, null, null],
+        1100: [2000, 1200, null, null],
+        1200: [1950, null, null, null],
+        1300: [1900, null, null, null],
+        1400: [1850, null, null, null],
+        1500: [1750, null, null, null],
+      },
+      true: {
+        500: [1150, 1000, 950, 850],
+        600: [1050, 950, 900, 800],
+        700: [1000, 900, 850, 750],
+        800: [950, 850, 800, null],
+        900: [900, 800, null, null],
+        1000: [900, null, null, null],
+      },
+    },
   },
 };
 
-function getLoadClasses(fireProtection) {
-  return fireProtection ? FIRE_LOAD_CLASSES : LOAD_CLASSES;
+function getConstruction(roomOrType = "D113") {
+  const type = typeof roomOrType === "string" ? roomOrType : roomOrType.systemType;
+  return CONSTRUCTION_TYPES[type] || CONSTRUCTION_TYPES.D113;
 }
 
-function getTableValue(fireProtection, c, loadClass) {
-  const classes = getLoadClasses(fireProtection);
+function getLoadClasses(systemType, fireProtection) {
+  const construction = getConstruction(systemType);
+  return fireProtection ? construction.fireLoadClasses : construction.loadClasses;
+}
+
+function getTableValue(room, c = room.c, loadClass = room.loadClass) {
+  const classes = getLoadClasses(room.systemType, room.fireProtection);
   const idx = classes.indexOf(loadClass);
   if (idx === -1) return null;
-  return KNAUF_TABLE[String(fireProtection)]?.[c]?.[idx] || null;
+  return getConstruction(room).table[String(room.fireProtection)]?.[c]?.[idx] || null;
+}
+
+function getValidCValues(room) {
+  const classes = getLoadClasses(room.systemType, room.fireProtection);
+  const idx = classes.indexOf(room.loadClass);
+  const table = getConstruction(room).table[String(room.fireProtection)] || {};
+  return Object.keys(table)
+    .map(Number)
+    .filter((c) => table[c]?.[idx] != null)
+    .sort((a, b) => a - b);
+}
+
+function syncSpacingFromKnaufTable(room, { keepC = true } = {}) {
+  const validCValues = getValidCValues(room);
+  if (!keepC || !validCValues.includes(Number(room.c))) {
+    room.c = validCValues[0] || room.c;
+  }
+
+  const a = getTableValue(room);
+  if (a) room.a = a;
+
+  if (!room.overrides?.b) {
+    room.b = BOARD_TYPE_TO_B[room.boardType] || room.b;
+  }
 }
 
 function countBySpacing(lengthCm, spacingMm, edgeCm) {
@@ -53,11 +176,27 @@ function countBySpacing(lengthCm, spacingMm, edgeCm) {
   return Math.ceil(effectiveLength / (spacingMm / 10)) + 1;
 }
 
-const state = loadState();
-if (!state.rooms.length) state.rooms.push(createRoom());
-if (!state.activeRoomId) state.activeRoomId = state.rooms[0].id;
+const state = isBrowser ? loadState() : {
+  rooms: [],
+  constants: {
+    cdLength: 4,
+    udLength: 4,
+    offset: 30,
+    udAnchorSpacing: 625,
+    metalScrewsPerCrossConnector: 4,
+    metalScrewsPerDirectHanger: 2,
+    drywallScrewsPerM2: 25,
+    anchorsPerDirectHanger: 1,
+    wastePercent: 10,
+    roundingMode: "up",
+  },
+  activeRoomId: "",
+};
+if (isBrowser && !state.rooms.length) state.rooms.push(createRoom());
+if (isBrowser && !state.activeRoomId) state.activeRoomId = state.rooms[0].id;
 
-const el = {
+const el = isBrowser ? {
+  constructionForm: document.getElementById("construction-form"),
   constantsForm: document.getElementById("constants-form"),
   cdLength: document.getElementById("const-cd-length"),
   udLength: document.getElementById("const-ud-length"),
@@ -76,11 +215,12 @@ const el = {
   area: document.getElementById("room-area"),
   load: document.getElementById("room-load"),
   fire: document.getElementById("room-fire"),
+  system: document.getElementById("room-system"),
   board: document.getElementById("room-board"),
   a: document.getElementById("room-a"),
   b: document.getElementById("room-b"),
   c: document.getElementById("room-c"),
-  validation: document.getElementById("validation"),
+  constructionValidation: document.getElementById("construction-validation"),
 
   saveRoom: document.getElementById("save-room"),
   cancelRoom: document.getElementById("cancel-room"),
@@ -96,7 +236,7 @@ const el = {
   zoomReset: document.getElementById("zoom-reset"),
   openFullscreen: document.getElementById("open-fullscreen"),
   zoomIndicator: document.getElementById("zoom-indicator"),
-};
+} : {};
 
 let areaDirty = false;
 let schemeZoom = 1;
@@ -146,34 +286,55 @@ function saveState() {
 
 function createRoom() {
   const id = crypto.randomUUID();
+  const construction = getConstruction("D113");
   const room = {
     id,
     name: "Стая",
     width: 400,
     length: 300,
     area: 12,
-    loadClass: "0.30",
-    fireProtection: false,
+    systemType: "D113",
+    loadClass: construction.defaultLoadClass,
+    fireProtection: construction.defaultFireProtection,
     boardType: "12.5_or_2x12.5",
     a: 900,
     b: 500,
     c: 600,
-    overrides: { area: false, a: false, b: false, c: false },
+    offset: construction.defaultOffset,
+    udAnchorSpacing: construction.defaultUdAnchorSpacing,
+    overrides: { area: false, a: false, b: false, c: false, offset: false, udAnchorSpacing: false },
   };
   applyAutoABC(room);
   return room;
 }
 
-function applyAutoABC(room) {
-  const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType);
-  if (!room.overrides?.a) room.a = auto.a;
-  if (!room.overrides?.c) room.c = auto.c;
-  if (!room.overrides?.b) room.b = auto.b;
+function normalizeRoom(room) {
+  const construction = getConstruction(room.systemType || "D113");
+  room.systemType = room.systemType || "D113";
+  room.fireProtection = Boolean(room.fireProtection && construction.fireLoadClasses.length);
+  room.overrides = { area: false, a: false, b: false, c: false, offset: false, udAnchorSpacing: false, ...room.overrides };
+  if (!getLoadClasses(room.systemType, room.fireProtection).includes(room.loadClass)) {
+    room.loadClass = construction.defaultLoadClass;
+  }
+  if (!Number(room.offset)) room.offset = Number(state.constants?.offset) || construction.defaultOffset;
+  if (!Number(room.udAnchorSpacing)) room.udAnchorSpacing = Number(state.constants?.udAnchorSpacing) || construction.defaultUdAnchorSpacing;
+  return room;
 }
 
-function getAutoABC(loadClass, fireProtection, boardType) {
-  const table = KNAUF_TABLE[String(fireProtection)];
-  const classes = getLoadClasses(fireProtection);
+function applyAutoABC(room) {
+  normalizeRoom(room);
+  const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType, room.systemType);
+  if (!room.overrides?.c) room.c = auto.c;
+  if (!room.overrides?.a) room.a = auto.a;
+  if (!room.overrides?.b) room.b = auto.b;
+  if (!room.overrides?.offset) room.offset = auto.offset;
+  if (!room.overrides?.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
+}
+
+function getAutoABC(loadClass, fireProtection, boardType, systemType = "D113") {
+  const construction = getConstruction(systemType);
+  const table = construction.table[String(fireProtection)];
+  const classes = getLoadClasses(systemType, fireProtection);
   const idx = Math.max(0, classes.indexOf(loadClass));
   const sortedC = Object.keys(table).map(Number).sort((a, b) => a - b);
   const firstValid = sortedC.find((c) => table[c][idx] != null) || 600;
@@ -181,25 +342,31 @@ function getAutoABC(loadClass, fireProtection, boardType) {
     a: table[firstValid][idx] || 900,
     c: firstValid,
     b: BOARD_TYPE_TO_B[boardType] || 500,
+    offset: construction.defaultOffset,
+    udAnchorSpacing: construction.defaultUdAnchorSpacing,
   };
 }
 
 function validateCombination(room) {
-  const aExpected = getTableValue(room.fireProtection, room.c, room.loadClass);
+  normalizeRoom(room);
+  const aExpected = getTableValue(room);
   const validB = Object.values(BOARD_TYPE_TO_B).includes(room.b);
-  const validBForLoad = !(room.fireProtection === false
+  const validBForLoad = !(room.systemType === "D113"
+    && room.fireProtection === false
     && room.c === 700
     && room.loadClass === "0.65"
     && room.b === 800);
-  return Boolean(aExpected && aExpected === room.a && validB && validBForLoad);
+  const validA = aExpected && room.a <= aExpected;
+  return Boolean(validA && validB && validBForLoad);
 }
 
 function calc(room) {
+  normalizeRoom(room);
   const X = Number(room.width);
   const Y = Number(room.length);
   const W = Math.min(X, Y);
   const L = Math.max(X, Y);
-  const offset = state.constants.offset;
+  const offset = Number(room.offset);
 
   const bearingCount = countBySpacing(W, room.c, offset);
   const bearingLengthTotal = bearingCount * (L / 100);
@@ -219,7 +386,7 @@ function calc(room) {
   const udTotalLength = (2 * (X + Y)) / 100;
   const udProfiles = Math.ceil(udTotalLength / state.constants.udLength);
 
-  const anchorsUd = Math.ceil(udTotalLength / (state.constants.udAnchorSpacing / 1000));
+  const anchorsUd = Math.ceil(udTotalLength / (room.udAnchorSpacing / 1000));
   const anchorsHangers = hangersTotal * state.constants.anchorsPerDirectHanger;
   const anchorsTotal = anchorsUd + anchorsHangers;
   const metalScrews = Math.ceil(
@@ -257,7 +424,7 @@ function calc(room) {
   };
 }
 
-function buildPositions(limitCm, spacingMm, edgeCm = state.constants.offset) {
+function buildPositions(limitCm, spacingMm, edgeCm = 30) {
   const count = countBySpacing(limitCm, spacingMm, edgeCm);
   if (!count) return [];
   if (count === 1) return [Math.min(edgeCm, limitCm / 2)];
@@ -281,8 +448,6 @@ function setZoom(nextZoom) {
 function render() {
   el.cdLength.value = state.constants.cdLength;
   el.udLength.value = state.constants.udLength;
-  el.offset.value = state.constants.offset;
-  el.udAnchor.value = state.constants.udAnchorSpacing;
   el.metalCross.value = state.constants.metalScrewsPerCrossConnector;
   el.metalHanger.value = state.constants.metalScrewsPerDirectHanger;
   el.drywallPerM2.value = state.constants.drywallScrewsPerM2;
@@ -292,6 +457,7 @@ function render() {
   renderTotals();
   const active = state.rooms.find((r) => r.id === state.activeRoomId);
   if (active) {
+    normalizeRoom(active);
     bindRoomToForm(active);
     renderScheme(active);
     renderFormulas(active);
@@ -301,6 +467,7 @@ function render() {
 }
 
 function bindRoomToForm(room) {
+  normalizeRoom(room);
   el.formTitle.textContent = "Стаи";
   el.roomId.value = room.id;
   el.name.value = room.name;
@@ -309,11 +476,25 @@ function bindRoomToForm(room) {
   el.area.value = room.area;
   el.load.value = room.loadClass;
   el.fire.value = String(room.fireProtection);
+  el.system.value = room.systemType;
   el.board.value = room.boardType;
+  el.offset.value = room.offset;
+  el.udAnchor.value = room.udAnchorSpacing;
+  renderLoadOptions(room);
   el.a.value = room.a;
   el.b.value = room.b;
   el.c.value = room.c;
-  el.validation.textContent = validateCombination(room) ? "" : "Невалидна комбинация според Knauf D113";
+  const validationMessage = validateCombination(room) ? "" : `Невалидна комбинация според Knauf ${room.systemType}`;
+  el.constructionValidation.textContent = validationMessage;
+}
+
+function renderLoadOptions(room) {
+  const classes = getLoadClasses(room.systemType, room.fireProtection);
+  el.load.innerHTML = classes
+    .map((value) => `<option value="${value}">до ${value} kN/m²</option>`)
+    .join("");
+  el.load.value = room.loadClass;
+  el.fire.disabled = !getConstruction(room).fireLoadClasses.length;
 }
 
 function renderTable() {
@@ -353,12 +534,13 @@ function renderTable() {
     totals.drywallScrews += r.drywallScrews;
     totals.extensionsTotal += r.extensionsTotal;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><a href="#" class="room-link" data-id="${room.id}" data-action="edit">${room.name}</a></td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
+    tr.innerHTML = `<td><a href="#" class="room-link" data-id="${room.id}" data-action="edit">${room.name}</a></td><td>${room.systemType}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
     el.tbody.appendChild(tr);
   });
   el.tableFoot.innerHTML = `
     <tr class="total-row">
       <td><strong>Total</strong></td>
+      <td>—</td>
       <td>—</td>
       <td>—</td>
       <td><strong>${totals.area.toFixed(2)}</strong></td>
@@ -413,10 +595,11 @@ function renderTotals() {
 }
 
 function renderScheme(room) {
+  normalizeRoom(room);
   const r = calc(room);
-  const bearingLinePositionsCm = buildPositions(r.W, room.c, state.constants.offset);
-  const mountingLinePositionsCm = buildPositions(r.L, room.b, state.constants.offset);
-  const hangerPositionsCm = buildPositions(r.L, room.a, state.constants.offset);
+  const bearingLinePositionsCm = buildPositions(r.W, room.c, room.offset);
+  const mountingLinePositionsCm = buildPositions(r.L, room.b, room.offset);
+  const hangerPositionsCm = buildPositions(r.L, room.a, room.offset);
   const extensionPoints = [];
   const pad = 40;
   const w = 760;
@@ -480,11 +663,12 @@ function renderScheme(room) {
   const legendRows = [
     ["W (широчина)", `${r.W.toFixed(0)} cm`],
     ["L (дължина)", `${r.L.toFixed(0)} cm`],
+    ["Конструкция", `${room.systemType} - ${getConstruction(room).label}`],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
     ["a (Разстояние между окачвачите)", `${room.a} mm`],
     ["b (Разстояние между монтажните профили)", `${room.b} mm`],
     ["c (Разстояние между носещите профили)", `${room.c} mm`],
-    ["o (първоначален offset)", `${state.constants.offset} cm`],
+    ["o (първоначален offset)", `${room.offset} cm`],
     ["Елементи в схемата", `
       <div class="legend-swatch-row"><span class="legend-swatch line mounting"></span><span>Монтажен CD профил</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch line bearing"></span><span>Носещ CD профил</span></div>
@@ -517,13 +701,14 @@ function withBoldResult(text) {
 }
 
 function renderFormulas(room) {
+  normalizeRoom(room);
   const r = calc(room);
   const X = Number(room.width);
   const Y = Number(room.length);
   const W = Math.min(X, Y);
   const L = Math.max(X, Y);
-  const offset = state.constants.offset;
-  const udAnchorSpacingMm = Number(state.constants.udAnchorSpacing);
+  const offset = Number(room.offset);
+  const udAnchorSpacingMm = Number(room.udAnchorSpacing);
 
   const rows = [
     {
@@ -581,18 +766,36 @@ function updateRoomFromForm() {
   room.width = Number(el.width.value);
   room.length = Number(el.length.value);
   room.area = Number(el.area.value);
+  room.systemType = el.system.value;
   room.loadClass = el.load.value;
   room.fireProtection = el.fire.value === "true";
   room.boardType = el.board.value;
   room.a = Number(el.a.value);
   room.b = Number(el.b.value);
   room.c = Number(el.c.value);
+  room.offset = Number(el.offset.value);
+  room.udAnchorSpacing = Number(el.udAnchor.value);
 
   applyAutoABC(room);
   if (!room.overrides.area && room.width && room.length) room.area = (room.width * room.length) / 10000;
-  el.validation.textContent = validateCombination(room) ? "" : "Невалидна комбинация според Knauf D113";
+  const validationMessage = validateCombination(room) ? "" : `Невалидна комбинация според Knauf ${room.systemType}`;
+  el.constructionValidation.textContent = validationMessage;
 }
 
+function handleLoadClassChange() {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (!room) return;
+  room.loadClass = el.load.value;
+  if (!getLoadClasses(room.systemType, room.fireProtection).includes(room.loadClass)) {
+    room.loadClass = getLoadClasses(room.systemType, room.fireProtection)[0];
+    el.load.value = room.loadClass;
+  }
+  room.overrides.a = false;
+  syncSpacingFromKnaufTable(room, { keepC: true });
+  render();
+}
+
+if (isBrowser) {
 [el.width, el.length].forEach((input) => input.addEventListener("input", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   if (!room) return;
@@ -614,33 +817,36 @@ el.area.addEventListener("input", () => {
   render();
 });
 
-function handleLoadClassChange() {
-  const room = state.rooms.find((r) => r.id === state.activeRoomId);
-  if (!room) return;
-  room.loadClass = el.load.value;
-  if (!getLoadClasses(room.fireProtection).includes(room.loadClass)) {
-    room.loadClass = getLoadClasses(room.fireProtection)[0];
-    el.load.value = room.loadClass;
-  }
-  room.overrides.a = false;
-  room.overrides.c = false;
-  applyAutoABC(room);
-  render();
-}
-
 el.load.addEventListener("change", handleLoadClassChange);
 el.load.addEventListener("input", handleLoadClassChange);
+
+el.system.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (!room) return;
+  room.systemType = el.system.value;
+  const construction = getConstruction(room);
+  room.fireProtection = construction.defaultFireProtection;
+  room.loadClass = construction.defaultLoadClass;
+  room.overrides.a = false;
+  room.overrides.b = false;
+  room.overrides.c = false;
+  room.overrides.offset = false;
+  room.overrides.udAnchorSpacing = false;
+  applyAutoABC(room);
+  syncSpacingFromKnaufTable(room, { keepC: false });
+  render();
+});
 
 el.fire.addEventListener("change", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   room.fireProtection = el.fire.value === "true";
-  if (!getLoadClasses(room.fireProtection).includes(room.loadClass)) {
-    room.loadClass = getLoadClasses(room.fireProtection)[0];
+  if (!getConstruction(room).fireLoadClasses.length) room.fireProtection = false;
+  if (!getLoadClasses(room.systemType, room.fireProtection).includes(room.loadClass)) {
+    room.loadClass = getLoadClasses(room.systemType, room.fireProtection)[0];
     el.load.value = room.loadClass;
   }
   room.overrides.a = false;
-  room.overrides.c = false;
-  applyAutoABC(room);
+  syncSpacingFromKnaufTable(room, { keepC: true });
   render();
 });
 
@@ -648,11 +854,17 @@ el.board.addEventListener("change", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   room.boardType = el.board.value;
   room.overrides.b = el.board.value === "custom";
-  applyAutoABC(room);
+  syncSpacingFromKnaufTable(room, { keepC: true });
   render();
 });
 
 el.a.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.a = true;
+  room.a = Number(el.a.value);
+  render();
+});
+el.a.addEventListener("change", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   room.overrides.a = true;
   room.a = Number(el.a.value);
@@ -664,18 +876,46 @@ el.b.addEventListener("input", () => {
   room.b = Number(el.b.value);
   render();
 });
+el.b.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.b = true;
+  room.b = Number(el.b.value);
+  render();
+});
 el.c.addEventListener("input", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   room.overrides.c = true;
   room.c = Number(el.c.value);
+  room.overrides.a = false;
+  syncSpacingFromKnaufTable(room, { keepC: true });
+  render();
+});
+el.c.addEventListener("change", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.c = true;
+  room.c = Number(el.c.value);
+  room.overrides.a = false;
+  syncSpacingFromKnaufTable(room, { keepC: true });
+  render();
+});
+
+el.offset.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.offset = true;
+  room.offset = Number(el.offset.value);
+  render();
+});
+
+el.udAnchor.addEventListener("input", () => {
+  const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  room.overrides.udAnchorSpacing = true;
+  room.udAnchorSpacing = Number(el.udAnchor.value);
   render();
 });
 
 el.constantsForm.addEventListener("input", () => {
   state.constants.cdLength = Number(el.cdLength.value);
   state.constants.udLength = Number(el.udLength.value);
-  state.constants.offset = Number(el.offset.value);
-  state.constants.udAnchorSpacing = Number(el.udAnchor.value);
   state.constants.metalScrewsPerCrossConnector = Number(el.metalCross.value);
   state.constants.metalScrewsPerDirectHanger = Number(el.metalHanger.value);
   state.constants.drywallScrewsPerM2 = Number(el.drywallPerM2.value);
@@ -703,7 +943,7 @@ document.getElementById("cancel-room").addEventListener("click", () => {
   el.width.value = "";
   el.length.value = "";
   el.area.value = "";
-  el.validation.textContent = "";
+  el.constructionValidation.textContent = "";
   areaDirty = false;
 });
 
@@ -733,9 +973,12 @@ document.getElementById("export-json").addEventListener("click", () => {
       width: room.width,
       length: room.length,
       area: room.area,
+      systemType: room.systemType,
       a: room.a,
       b: room.b,
       c: room.c,
+      offset: room.offset,
+      udAnchorSpacing: room.udAnchorSpacing,
       loadClass: room.loadClass,
       fireProtection: room.fireProtection,
       boardType: room.boardType,
@@ -765,7 +1008,7 @@ function xmlEscape(value) {
 
 function exportRoomsToExcel() {
   const headers = [
-    "Стая", "X", "Y", "Площ", "Носещи CD (бр реда)", "Монтажни CD (бр реда)",
+    "Стая", "Конструкция", "X", "Y", "Площ", "Носещи CD (бр реда)", "Монтажни CD (бр реда)",
     "Носещи m", "Монтажни m", "CD бр.", "UD бр.", "Връзки", "Окачвачи",
     "Дюбели UD", "Дюбели окачвачи", "Дюбели общо", "Винтове метал", "Винтове гипсокартон", "Удължители",
   ];
@@ -774,6 +1017,7 @@ function exportRoomsToExcel() {
     const r = calc(room);
     return [
       room.name,
+      room.systemType,
       room.width,
       room.length,
       Number(room.area).toFixed(2),
@@ -879,3 +1123,17 @@ el.reservePercent.addEventListener("input", () => {
 });
 
 render();
+}
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    BOARD_TYPE_TO_B,
+    CONSTRUCTION_TYPES,
+    calc,
+    countBySpacing,
+    getTableValue,
+    getValidCValues,
+    syncSpacingFromKnaufTable,
+    validateCombination,
+  };
+}

@@ -58,6 +58,46 @@ input, select, button {
   font: inherit;
 }
 input, select { color: var(--text); background: #fff; }
+.construction-form {
+  display: grid;
+  gap: .7rem;
+}
+.dependency-group {
+  border-top: 1px solid var(--border);
+  padding-top: .7rem;
+}
+.dependency-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.dependency-title {
+  margin-bottom: .45rem;
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 700;
+}
+.dependency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: .8rem;
+}
+.dependency-system {
+  background: #eef6ff;
+  border: 1px solid #b9d5f0;
+  border-radius: 8px;
+  padding: .7rem;
+}
+.dependency-system label {
+  color: var(--text);
+  font-weight: 700;
+}
+.primary-select {
+  min-height: 2.75rem;
+  border-color: var(--primary);
+  border-width: 2px;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
 button {
   border: none;
   background: var(--primary);
