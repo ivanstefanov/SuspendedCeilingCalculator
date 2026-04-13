@@ -67,6 +67,8 @@ const el = {
   saveRoom: document.getElementById("save-room"),
   cancelRoom: document.getElementById("cancel-room"),
   tbody: document.querySelector("#rooms-table tbody"),
+  totalsPanel: document.getElementById("totals-panel"),
+  reservePercent: document.getElementById("reserve-percent"),
   formulas: document.getElementById("formulas"),
   scheme: document.getElementById("scheme"),
   schemeLegend: document.getElementById("scheme-legend"),
@@ -258,7 +260,9 @@ function render() {
   el.metalHanger.value = state.constants.metalScrewsPerDirectHanger;
   el.drywallPerM2.value = state.constants.drywallScrewsPerM2;
   el.anchorsPerHanger.value = state.constants.anchorsPerDirectHanger;
+  el.reservePercent.value = state.constants.wastePercent;
   renderTable();
+  renderTotals();
   const active = state.rooms.find((r) => r.id === state.activeRoomId);
   if (active) {
     bindRoomToForm(active);
@@ -293,6 +297,37 @@ function renderTable() {
     tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="view" title="Преглед">👁️</button><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
     el.tbody.appendChild(tr);
   });
+}
+
+function renderTotals() {
+  const reservePercent = Number(state.constants.wastePercent) || 0;
+  const multiplier = 1 + reservePercent / 100;
+  const totals = state.rooms.reduce((acc, room) => {
+    const r = calc(room);
+    acc.cd += r.cdTotalProfiles;
+    acc.ud += r.udProfiles;
+    acc.connectors += r.crossConnectors;
+    acc.hangers += r.hangersTotal;
+    acc.anchors += r.anchorsTotal;
+    acc.screws += r.metalScrews + r.drywallScrews;
+    acc.extensions += r.extensionsTotal;
+    return acc;
+  }, {
+    cd: 0, ud: 0, connectors: 0, hangers: 0, anchors: 0, screws: 0, extensions: 0,
+  });
+
+  const withReserve = (value) => Math.ceil(value * multiplier);
+  el.totalsPanel.innerHTML = `
+    <div class="totals-grid">
+      <div><strong>Тотал CD бр.:</strong> ${withReserve(totals.cd)}</div>
+      <div><strong>Тотал UD бр.:</strong> ${withReserve(totals.ud)}</div>
+      <div><strong>Тотал Връзки:</strong> ${withReserve(totals.connectors)}</div>
+      <div><strong>Тотал Окачвачи:</strong> ${withReserve(totals.hangers)}</div>
+      <div><strong>Тотал Дюбели:</strong> ${withReserve(totals.anchors)}</div>
+      <div><strong>Тотал Винтове:</strong> ${withReserve(totals.screws)}</div>
+      <div><strong>Тотал Удължители:</strong> ${withReserve(totals.extensions)}</div>
+    </div>
+  `;
 }
 
 function renderScheme(room) {
@@ -575,23 +610,18 @@ document.getElementById("save-room").addEventListener("click", () => {
 });
 
 document.getElementById("cancel-room").addEventListener("click", () => {
+  el.name.value = "";
+  el.width.value = "";
+  el.length.value = "";
+  el.area.value = "";
+  el.load.value = LOAD_CLASSES[0];
+  el.fire.value = "false";
+  el.board.value = "12.5_or_2x12.5";
+  el.a.value = "";
+  el.b.value = "";
+  el.c.value = "";
+  el.validation.textContent = "";
   areaDirty = false;
-  const room = state.rooms.find((r) => r.id === state.activeRoomId);
-  if (room) {
-    const resetRoom = createRoom();
-    room.name = resetRoom.name;
-    room.width = resetRoom.width;
-    room.length = resetRoom.length;
-    room.area = resetRoom.area;
-    room.loadClass = resetRoom.loadClass;
-    room.fireProtection = resetRoom.fireProtection;
-    room.boardType = resetRoom.boardType;
-    room.a = resetRoom.a;
-    room.b = resetRoom.b;
-    room.c = resetRoom.c;
-    room.overrides = { ...resetRoom.overrides };
-  }
-  render();
 });
 
 el.tbody.addEventListener("click", (event) => {
@@ -765,6 +795,11 @@ el.scheme.addEventListener("wheel", (event) => {
 document.getElementById("clear-all").addEventListener("click", () => {
   state.rooms = [createRoom()];
   state.activeRoomId = state.rooms[0].id;
+  render();
+});
+
+el.reservePercent.addEventListener("input", () => {
+  state.constants.wastePercent = Number(el.reservePercent.value) || 0;
   render();
 });
 

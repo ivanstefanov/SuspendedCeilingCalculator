@@ -117,6 +117,20 @@ tr:nth-child(even) td { background: #f7fbff; }
   font-size: 1.1rem;
   line-height: 1;
 }
+.totals-panel {
+  margin-top: .8rem;
+  padding: .7rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f9fcff;
+}
+.totals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: .45rem .8rem;
+  font-size: .9rem;
+}
+.reserve-controls { margin-top: .7rem; max-width: 240px; }
 .actions button[title="Преглед"],
 .actions button[title="Редакция"],
 .actions button[title="Изтрий"] {
