@@ -274,13 +274,21 @@ function renderScheme(room) {
   const r = calc(room);
   const bearingPos = buildPositions(r.W, room.c);
   const mountingPos = buildPositions(r.L, room.b);
+  const hangerPos = buildPositions(r.L, room.a);
   const pad = 40;
   const w = 760;
   const h = 300;
   const xScale = w / r.L;
   const yScale = h / r.W;
+  const bearingStroke = 2;
 
   let svg = `<rect x="${pad}" y="${pad}" width="${w}" height="${h}" fill="#eef6ff" stroke="#13588f" stroke-width="2" />`;
+
+  // Размери в краищата на стаята
+  svg += `<text x="${pad}" y="${pad - 10}" fill="#17324d" font-size="11">0 см</text>`;
+  svg += `<text x="${pad + w - 48}" y="${pad - 10}" fill="#17324d" font-size="11">${r.L.toFixed(0)} см</text>`;
+  svg += `<text x="${pad - 34}" y="${pad + 4}" fill="#17324d" font-size="11">0 см</text>`;
+  svg += `<text x="${pad - 42}" y="${pad + h}" fill="#17324d" font-size="11">${r.W.toFixed(0)} см</text>`;
 
   mountingPos.forEach((p) => {
     const x = pad + p * xScale;
@@ -290,8 +298,19 @@ function renderScheme(room) {
 
   bearingPos.forEach((p) => {
     const y = pad + p * yScale;
-    svg += `<line x1="${pad}" y1="${y}" x2="${pad + w}" y2="${y}" stroke="#1f5e93" stroke-width="2"/>`;
+    svg += `<line x1="${pad}" y1="${y}" x2="${pad + w}" y2="${y}" stroke="#1f5e93" stroke-width="${bearingStroke}"/>`;
     svg += `<text x="${pad + 2}" y="${y - 3}" fill="#1f5e93" font-size="10">${p.toFixed(0)}см</text>`;
+
+    // Позиции на окачвачите върху носещите профили
+    hangerPos.forEach((hp) => {
+      const hx = pad + hp * xScale;
+      svg += `<circle cx="${hx}" cy="${y}" r="${bearingStroke / 2}" fill="#1b1b1b"/>`;
+    });
+  });
+
+  hangerPos.forEach((hp) => {
+    const hx = pad + hp * xScale;
+    svg += `<text x="${hx - 10}" y="${pad + h + 14}" fill="#1b1b1b" font-size="10">${hp.toFixed(0)}</text>`;
   });
 
   el.scheme.innerHTML = svg;
@@ -302,6 +321,8 @@ function renderScheme(room) {
     ["b (Разстояние между монтажните профили)", `${room.b} mm`],
     ["c (Разстояние между носещите профили)", `${room.c} mm`],
     ["o (първоначален offset)", `${state.constants.offset} cm`],
+    ["Цветове/дебелини", "Зелено: монтажни CD; Синьо: носещи CD; Удебелено синьо: носещи линии"],
+    ["Тъмни кръгчета", `Окачвачи (Ø ${bearingStroke}px), позиции от стена: ${hangerPos.map((p) => p.toFixed(0)).join(", ")} cm`],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
