@@ -34,6 +34,10 @@ const areaInput = document.getElementById("areaM2");
 const nameInput = document.getElementById("name");
 const loadInput = document.getElementById("loadClass");
 const fireInput = document.getElementById("fireProtection");
+const cSpacingInput = document.getElementById("cSpacing");
+const hangerSpacingInput = document.getElementById("hangerSpacing");
+const cSpacingOptions = document.getElementById("cSpacingOptions");
+const hangerSpacingOptions = document.getElementById("hangerSpacingOptions");
 const mountSpacingInput = document.getElementById("mountSpacing");
 const udDowelInput = document.getElementById("udDowelSpacing");
 const cdProfileLengthInput = document.getElementById("cdProfileLengthM");
@@ -76,13 +80,43 @@ function pickKnaufParams(loadClass, fireProtection) {
   return { cSpacingMm: 500, hangerSpacingMm: 600 };
 }
 
-function ceilDiv(a, b) {
-  return Math.ceil(a / b);
+function buildPositionsMm(spanMm, spacingMm, firstOffsetMm = 300) {
+  if (spanMm <= firstOffsetMm * 2) return [spanMm / 2];
+  const positions = [];
+  const endLimit = spanMm - firstOffsetMm;
+  for (let pos = firstOffsetMm; pos <= endLimit; pos += spacingMm) {
+    positions.push(pos);
+  }
+  return positions.length ? positions : [spanMm / 2];
 }
 
-function countWithWallOffset(spanMm, spacingMm, firstOffsetMm = 300) {
-  if (spanMm <= firstOffsetMm * 2) return 1;
-  return Math.ceil((spanMm - firstOffsetMm * 2) / spacingMm) + 1;
+function getKnaufOptions(loadClass, fireProtection) {
+  const classIndex = LOAD_CLASSES.indexOf(loadClass);
+  const table = KNAUF_TABLE[String(fireProtection)];
+  const options = Object.entries(table)
+    .map(([c, values]) => ({ c: Number(c), a: values[classIndex] }))
+    .filter((row) => row.a)
+    .sort((left, right) => left.c - right.c);
+  return options;
+}
+
+function setDatalistOptions(el, values) {
+  el.innerHTML = values.map((value) => `<option value="${value}"></option>`).join("");
+}
+
+function refreshSpacingPresets(force = false) {
+  const options = getKnaufOptions(loadInput.value, fireInput.value === "true");
+  if (!options.length) return;
+
+  setDatalistOptions(cSpacingOptions, options.map((row) => row.c));
+  setDatalistOptions(hangerSpacingOptions, options.map((row) => row.a));
+
+  if (force || !cSpacingInput.value) cSpacingInput.value = options[0].c;
+  if (force || !hangerSpacingInput.value) hangerSpacingInput.value = options[0].a;
+}
+
+function ceilDiv(a, b) {
+  return Math.ceil(a / b);
 }
 
 function calcRoomMetrics(room) {
@@ -92,7 +126,9 @@ function calcRoomMetrics(room) {
   const W = Math.min(xCm, yCm) / 100;
   const L = Math.max(xCm, yCm) / 100;
 
-  const { cSpacingMm, hangerSpacingMm } = pickKnaufParams(room.loadClass, room.fireProtection);
+  const fallback = pickKnaufParams(room.loadClass, room.fireProtection);
+  const cSpacingMm = Number(room.cSpacingMm || fallback.cSpacingMm);
+  const hangerSpacingMm = Number(room.hangerSpacingMm || fallback.hangerSpacingMm);
   const bSpacingMm = Number(room.mountSpacingMm || 500);
   const udDowelSpacing = Number(room.udDowelSpacingMm || 500);
   const cdProfileLengthM = Number(room.cdProfileLengthM || 4);
@@ -101,11 +137,13 @@ function calcRoomMetrics(room) {
   const udNeededM = 2 * (W + L);
   const udProfiles = ceilDiv(udNeededM, udProfileLengthM);
 
-  const primaryRows = countWithWallOffset(W * 1000, cSpacingMm, 300);
+  const primaryPositionsMm = buildPositionsMm(W * 1000, cSpacingMm, 300);
+  const primaryRows = primaryPositionsMm.length;
   const primaryTotalM = primaryRows * L;
   const primaryProfiles = ceilDiv(primaryTotalM, cdProfileLengthM);
 
-  const secondaryRows = countWithWallOffset(L * 1000, bSpacingMm, 300);
+  const secondaryPositionsMm = buildPositionsMm(L * 1000, bSpacingMm, 300);
+  const secondaryRows = secondaryPositionsMm.length;
   const secondaryTotalM = secondaryRows * W;
   const secondaryProfiles = ceilDiv(secondaryTotalM, cdProfileLengthM);
 
@@ -113,7 +151,8 @@ function calcRoomMetrics(room) {
   const totalCdProfiles = primaryProfiles + secondaryProfiles;
 
   const crossConnectors = primaryRows * secondaryRows;
-  const directPerPrimary = countWithWallOffset(L * 1000, hangerSpacingMm, 300);
+  const hangerPositionsMm = buildPositionsMm(L * 1000, hangerSpacingMm, 300);
+  const directPerPrimary = hangerPositionsMm.length;
   const directTotal = directPerPrimary * primaryRows;
 
   const udDowels = Math.ceil((udNeededM * 1000) / udDowelSpacing);
@@ -153,6 +192,9 @@ function calcRoomMetrics(room) {
     cdProfileLengthM,
     udProfileLengthM,
     firstProfileOffsetMm: 300,
+    primaryPositionsMm,
+    secondaryPositionsMm,
+    hangerPositionsMm,
   };
 }
 
@@ -181,7 +223,7 @@ function renderTable() {
     tbody.appendChild(tr);
   });
 
-  tableNote.textContent = "Бележка: c и a се избират автоматично по таблица Knauf; първи профил/окачвач е на 300 мм от стената; броят профили се закръгля винаги нагоре.";
+  tableNote.textContent = "Бележка: c и a се префилват по таблица Knauf според натоварване/пожарозащита, но могат да се редактират ръчно; първи профил/окачвач е на 300 мм от стената; броят профили се закръгля винаги нагоре.";
 
   const selected = rooms[0];
   if (selected) renderScheme(calcRoomMetrics(selected), selected.name);
@@ -204,14 +246,21 @@ function renderScheme(m, roomName) {
     <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи профил: ${m.firstProfileOffsetMm} мм</text>
   `;
 
+  const primaryScale = rh / (m.wShortM * 1000);
+  const secondaryScale = rw / (m.lLongM * 1000);
+
   for (let i = 0; i < primaryCount; i++) {
-    const y = primaryCount === 1 ? pad + rh / 2 : pad + (i * rh) / (primaryCount - 1);
+    const positionMm = m.primaryPositionsMm[i];
+    const y = pad + positionMm * primaryScale;
     svg += `<line x1="${pad}" y1="${y}" x2="${pad + rw}" y2="${y}" stroke="#284e7a" stroke-width="2.5" />`;
+    svg += `<text x="${pad + 8}" y="${y - 6}" fill="#1f3b5c" font-size="11">${Math.round(positionMm / 10)} см</text>`;
   }
 
   for (let i = 0; i < secondaryCount; i++) {
-    const x = secondaryCount === 1 ? pad + rw / 2 : pad + (i * rw) / (secondaryCount - 1);
+    const positionMm = m.secondaryPositionsMm[i];
+    const x = pad + positionMm * secondaryScale;
     svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + rh}" stroke="#7a99bd" stroke-width="1.7" />`;
+    svg += `<text x="${x + 4}" y="${pad + 14}" fill="#476483" font-size="10">${Math.round(positionMm / 10)} см</text>`;
   }
 
   svg += `
@@ -230,6 +279,7 @@ function resetForm() {
   udDowelInput.value = 500;
   cdProfileLengthInput.value = 4;
   udProfileLengthInput.value = 4;
+  refreshSpacingPresets(true);
 }
 
 form.addEventListener("submit", (e) => {
@@ -242,6 +292,8 @@ form.addEventListener("submit", (e) => {
     areaM2: Number(areaInput.value),
     loadClass: loadInput.value,
     fireProtection: fireInput.value === "true",
+    cSpacingMm: Number(cSpacingInput.value),
+    hangerSpacingMm: Number(hangerSpacingInput.value),
     mountSpacingMm: Number(mountSpacingInput.value),
     udDowelSpacingMm: Number(udDowelInput.value),
     cdProfileLengthM: Number(cdProfileLengthInput.value),
@@ -281,6 +333,9 @@ tbody.addEventListener("click", (e) => {
   areaInput.value = room.areaM2;
   loadInput.value = room.loadClass;
   fireInput.value = String(room.fireProtection);
+  refreshSpacingPresets(true);
+  cSpacingInput.value = room.cSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).cSpacingMm;
+  hangerSpacingInput.value = room.hangerSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).hangerSpacingMm;
   mountSpacingInput.value = room.mountSpacingMm || 500;
   udDowelInput.value = room.udDowelSpacingMm || 500;
   cdProfileLengthInput.value = room.cdProfileLengthM || 4;
@@ -292,6 +347,8 @@ tbody.addEventListener("click", (e) => {
 xCmInput.addEventListener("input", recalcArea);
 yCmInput.addEventListener("input", recalcArea);
 areaInput.addEventListener("input", () => { areaDirty = true; });
+loadInput.addEventListener("change", () => refreshSpacingPresets(true));
+fireInput.addEventListener("change", () => refreshSpacingPresets(true));
 
 // Export / import
 
@@ -333,3 +390,4 @@ document.getElementById("clear-all").addEventListener("click", () => {
 });
 
 renderTable();
+refreshSpacingPresets(true);
