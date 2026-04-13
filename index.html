@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suspended Ceiling Calculator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Калкулатор за окачен таван (UD/CD)</h1>
+    <p>Съобразено с таблица за максимални разстояния на Knauf (вариант 2, едно ниво).</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2 id="form-title">Нова стая</h2>
+      <form id="room-form">
+        <input type="hidden" id="room-id" />
+        <div class="grid">
+          <label>Име на стая
+            <input id="name" required placeholder="Дневна" />
+          </label>
+          <label>X (см)
+            <input id="xCm" type="number" min="1" step="1" required />
+          </label>
+          <label>Y (см)
+            <input id="yCm" type="number" min="1" step="1" required />
+          </label>
+          <label>Площ (м²)
+            <input id="areaM2" type="number" min="0.01" step="0.01" required />
+          </label>
+          <label>Клас на натоварване
+            <select id="loadClass" required>
+              <option value="0.15">до 0.15 kN/m²</option>
+              <option value="0.30">до 0.30 kN/m²</option>
+              <option value="0.40">до 0.40 kN/m²</option>
+              <option value="0.50">до 0.50 kN/m²</option>
+              <option value="0.65">до 0.65 kN/m²</option>
+            </select>
+          </label>
+          <label>Пожарозащита (отдолу)
+            <select id="fireProtection">
+              <option value="false">Без</option>
+              <option value="true">Да</option>
+            </select>
+          </label>
+          <label>Разст. монтажни CD b (мм)
+            <input id="mountSpacing" type="number" min="200" step="10" value="500" />
+          </label>
+          <label>Разст. дюбели към UD (мм)
+            <input id="udDowelSpacing" type="number" min="150" step="10" value="500" />
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Запази стая</button>
+          <button type="button" id="cancel-edit" class="secondary">Отказ</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Схема UD/CD</h2>
+      <div class="scheme-wrap">
+        <svg id="scheme" viewBox="0 0 800 420" aria-label="Схема на профилите"></svg>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>База данни</h2>
+      <div class="actions">
+        <button id="export-json">Експорт JSON</button>
+        <label class="import-label">
+          Импорт JSON
+          <input id="import-json" type="file" accept="application/json" />
+        </label>
+        <button id="clear-all" class="danger">Изтрий всички</button>
+      </div>
+    </section>
+
+    <section class="panel table-panel">
+      <h2>Стаи и метрики</h2>
+      <div class="table-scroll">
+        <table id="rooms-table">
+          <thead>
+            <tr>
+              <th>Стая</th><th>X см</th><th>Y см</th><th>Площ м²</th><th>Къса страна W м</th><th>Дълга страна L м</th>
+              <th>UD нужни м</th><th>UD профили 4 м (бр.)</th><th>Носещи CD реда</th><th>Носещ CD общо м</th>
+              <th>Носещ CD профили 4 м (бр.)</th><th>Монтажни CD реда</th><th>Монтажен CD общо м</th>
+              <th>Монтажни CD профили 4 м (бр.)</th><th>Общо CD м</th><th>Общо CD профили 4 м (бр.)</th>
+              <th>Кръстати връзки на едно ниво (бр.)</th><th>Директни окачвачи на 1 носещ профил (бр.)</th>
+              <th>Директни окачвачи общо (бр.)</th><th>Метални дюбели към UD (бр.)</th>
+              <th>Метални дюбели към тавана (бр.)</th><th>Общо метални дюбели (бр.)</th>
+              <th>Удължители за носещ CD (бр.)</th><th>Удължители за монтажен CD (бр.)</th>
+              <th>Общо удължители (бр.)</th><th>Натоварване</th><th>Пожарозащита</th><th>Действия</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="table-note"></p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
