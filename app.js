@@ -73,6 +73,7 @@ const el = {
   zoomIn: document.getElementById("zoom-in"),
   zoomOut: document.getElementById("zoom-out"),
   zoomReset: document.getElementById("zoom-reset"),
+  openFullscreen: document.getElementById("open-fullscreen"),
   zoomIndicator: document.getElementById("zoom-indicator"),
 };
 
@@ -299,6 +300,7 @@ function renderScheme(room) {
   const bearingPos = buildPositions(r.W, room.c);
   const mountingPos = buildPositions(r.L, room.b);
   const hangerPos = buildPositions(r.L, room.a);
+  const extensionPoints = [];
   const pad = 40;
   const w = 760;
   const h = 300;
@@ -339,7 +341,6 @@ function renderScheme(room) {
 
   const segmentLengthCm = state.constants.cdLength * 100;
   if (r.L > segmentLengthCm) {
-    const extensionPoints = [];
     for (let pos = segmentLengthCm; pos < r.L; pos += segmentLengthCm) extensionPoints.push(pos);
 
     bearingPos.forEach((p) => {
@@ -370,11 +371,12 @@ function renderScheme(room) {
       <div class="legend-swatch-row"><span class="legend-swatch line mounting"></span><span>Монтажен CD профил</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch line bearing"></span><span>Носещ CD профил</span></div>
       <div class="legend-swatch-row"><span class="legend-swatch point hanger"></span><span>Окачвач (позиция x см от началото на стената)</span></div>
-      <div class="legend-swatch-row"><span class="legend-swatch line" style="background:#d14a00;height:2px"></span><span>Удължител (позиция x см от стената)</span></div>
+      <div class="legend-swatch-row"><span class="legend-swatch line extension"></span><span>Удължител (вертикална позиция x см от стената)</span></div>
     `],
     ["Носещи", `[${bearingPos.map((p) => p.toFixed(0)).join(", ")}]`],
     ["Монтажни", `[${mountingPos.map((p) => p.toFixed(0)).join(", ")}]`],
     ["Окачвачи", `[${hangerPos.map((p) => p.toFixed(0)).join(", ")}]`],
+    ["Удължители", `[${extensionPoints.map((p) => p.toFixed(0)).join(", ")}] (напр. [400, 800])`],
     ["Клас на натоварване", `${room.loadClass} kN/m²`],
   ];
   el.schemeLegend.innerHTML = legendRows
@@ -416,7 +418,7 @@ function renderFormulas(room) {
         `Дюбели окачвачи = Окачвачи × дюбели/окачвач = ${r.hangersTotal} × ${state.constants.anchorsPerDirectHanger} = ${r.anchorsHangers}`,
         `Дюбели общо = Дюбели UD + Дюбели окачвачи = ${r.anchorsUd} + ${r.anchorsHangers} = ${r.anchorsTotal}`,
         `Винтове метал = ceil((Връзки × ${state.constants.metalScrewsPerCrossConnector}) + (Окачвачи × ${state.constants.metalScrewsPerDirectHanger})) = ${r.metalScrews}`,
-        `Винтове ГК = ceil(Площ × ${state.constants.drywallScrewsPerM2}) = ceil(${f2(room.area)} × ${state.constants.drywallScrewsPerM2}) = ${r.drywallScrews}`,
+        `Винтове гипсокартон = ceil(Площ × ${state.constants.drywallScrewsPerM2}) = ceil(${f2(room.area)} × ${state.constants.drywallScrewsPerM2}) = ${r.drywallScrews}`,
         `Удължители = Носещи удълж. + Монтажни удълж. = ${r.extensionsTotal}`,
       ],
     },
@@ -638,7 +640,7 @@ function exportRoomsToExcel() {
   const headers = [
     "Стая", "X", "Y", "Площ", "Носещи CD (бр реда)", "Монтажни CD (бр реда)",
     "Носещи m", "Монтажни m", "CD бр.", "UD бр.", "Връзки", "Окачвачи",
-    "Дюбели UD", "Дюбели окачвачи", "Дюбели общо", "Винтове метал", "Винтове ГК", "Удължители",
+    "Дюбели UD", "Дюбели окачвачи", "Дюбели общо", "Винтове метал", "Винтове гипсокартон", "Удължители",
   ];
 
   const rows = state.rooms.map((room) => {
@@ -711,6 +713,25 @@ document.getElementById("import-json").addEventListener("change", async (event) 
 el.zoomIn.addEventListener("click", () => setZoom(schemeZoom + 0.2));
 el.zoomOut.addEventListener("click", () => setZoom(schemeZoom - 0.2));
 el.zoomReset.addEventListener("click", () => setZoom(1));
+el.openFullscreen.addEventListener("click", () => {
+  const svgMarkup = el.scheme.outerHTML;
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.write(`<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Схема на цял екран</title>
+  <style>
+    body { margin: 0; background: #0b1a2b; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    svg { width: 100vw; height: 100vh; background: #f7fbff; }
+  </style>
+</head>
+<body>${svgMarkup}</body>
+</html>`);
+  win.document.close();
+});
 
 el.scheme.addEventListener("wheel", (event) => {
   if (!event.ctrlKey) return;
