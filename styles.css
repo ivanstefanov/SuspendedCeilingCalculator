@@ -25,6 +25,12 @@ button.danger { background: #b12020; }
 .scheme-legend { margin-top: .7rem; padding: .6rem .7rem; border: 1px solid #d8e3ef; border-radius: 8px; background: #f9fcff; }
 .legend-row { font-size: .9rem; line-height: 1.45; }
 .legend-title { font-weight: 700; }
+.legend-swatch-row { display: flex; align-items: center; gap: .5rem; margin: .15rem 0; }
+.legend-swatch { display: inline-block; flex: 0 0 auto; }
+.legend-swatch.line { width: 26px; height: 0; border-top-width: 3px; border-top-style: solid; }
+.legend-swatch.line.mounting { border-top-color: #2b9a42; border-top-width: 2px; }
+.legend-swatch.line.bearing { border-top-color: #1f5e93; border-top-width: 3px; }
+.legend-swatch.point.hanger { width: 10px; height: 10px; border-radius: 50%; background: #1b1b1b; }
 .table-scroll { overflow: auto; }
 #rooms-table { border-collapse: collapse; min-width: 1600px; width: 100%; }
 th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; white-space: nowrap; }
