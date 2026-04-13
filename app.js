@@ -1,6 +1,7 @@
 const STORAGE_KEY = "d113-calculator-v2";
 
 const LOAD_CLASSES = ["0.15", "0.30", "0.40", "0.50", "0.65"];
+const FIRE_LOAD_CLASSES = ["0.30", "0.40", "0.50", "0.65"];
 const BOARD_TYPE_TO_B = {
   "12.5_silent": 400,
   "12.5_or_2x12.5": 500,
@@ -23,17 +24,34 @@ const KNAUF_TABLE = {
     1250: [900, 650, null, null, null],
   },
   true: {
-    500: [850, 750, 700, 600, null],
-    600: [800, 700, 650, 550, null],
-    700: [750, 650, 600, 550, null],
-    800: [700, 650, 600, null, null],
-    900: [700, 600, 550, null, null],
-    1000: [650, 600, 550, null, null],
-    1100: [650, 600, 550, null, null],
-    1200: [600, 550, null, null, null],
-    1250: [600, null, null, null, null],
+    500: [850, 750, 700, 600],
+    600: [800, 700, 650, 550],
+    700: [750, 650, 600, 550],
+    800: [700, 650, 600, null],
+    900: [700, 600, 550, null],
+    1000: [650, 600, 550, null],
+    1100: [650, 600, null, null],
+    1200: [600, 550, null, null],
+    1250: [600, null, null, null],
   },
 };
+
+function getLoadClasses(fireProtection) {
+  return fireProtection ? FIRE_LOAD_CLASSES : LOAD_CLASSES;
+}
+
+function getTableValue(fireProtection, c, loadClass) {
+  const classes = getLoadClasses(fireProtection);
+  const idx = classes.indexOf(loadClass);
+  if (idx === -1) return null;
+  return KNAUF_TABLE[String(fireProtection)]?.[c]?.[idx] || null;
+}
+
+function countBySpacing(lengthCm, spacingMm, edgeCm) {
+  if (!lengthCm || !spacingMm) return 0;
+  const effectiveLength = Math.max(0, lengthCm - edgeCm);
+  return Math.ceil(effectiveLength / (spacingMm / 10)) + 1;
+}
 
 const state = loadState();
 if (!state.rooms.length) state.rooms.push(createRoom());
@@ -154,8 +172,9 @@ function applyAutoABC(room) {
 }
 
 function getAutoABC(loadClass, fireProtection, boardType) {
-  const idx = LOAD_CLASSES.indexOf(loadClass);
   const table = KNAUF_TABLE[String(fireProtection)];
+  const classes = getLoadClasses(fireProtection);
+  const idx = Math.max(0, classes.indexOf(loadClass));
   const sortedC = Object.keys(table).map(Number).sort((a, b) => a - b);
   const firstValid = sortedC.find((c) => table[c][idx] != null) || 600;
   return {
@@ -166,11 +185,13 @@ function getAutoABC(loadClass, fireProtection, boardType) {
 }
 
 function validateCombination(room) {
-  const idx = LOAD_CLASSES.indexOf(room.loadClass);
-  const table = KNAUF_TABLE[String(room.fireProtection)];
-  const aExpected = table[room.c]?.[idx];
+  const aExpected = getTableValue(room.fireProtection, room.c, room.loadClass);
   const validB = Object.values(BOARD_TYPE_TO_B).includes(room.b);
-  return Boolean(aExpected && aExpected === room.a && validB);
+  const validBForLoad = !(room.fireProtection === false
+    && room.c === 700
+    && room.loadClass === "0.65"
+    && room.b === 800);
+  return Boolean(aExpected && aExpected === room.a && validB && validBForLoad);
 }
 
 function calc(room) {
@@ -180,11 +201,11 @@ function calc(room) {
   const L = Math.max(X, Y);
   const offset = state.constants.offset;
 
-  const bearingCount = Math.ceil((W - offset) / (room.c / 10));
+  const bearingCount = countBySpacing(W, room.c, offset);
   const bearingLengthTotal = bearingCount * (L / 100);
   const bearingProfiles = Math.ceil(bearingLengthTotal / state.constants.cdLength);
 
-  const mountingCount = Math.ceil((L - offset) / (room.b / 10));
+  const mountingCount = countBySpacing(L, room.b, offset);
   const mountingLengthTotal = mountingCount * (W / 100);
   const mountingProfiles = Math.ceil(mountingLengthTotal / state.constants.cdLength);
 
@@ -192,7 +213,7 @@ function calc(room) {
   const cdTotalProfiles = bearingProfiles + mountingProfiles;
 
   const crossConnectors = bearingCount * mountingCount;
-  const hangersPerBearing = Math.ceil((L - offset) / (room.a / 10));
+  const hangersPerBearing = countBySpacing(L, room.a, offset);
   const hangersTotal = bearingCount * hangersPerBearing;
 
   const udTotalLength = (2 * (X + Y)) / 100;
@@ -236,10 +257,15 @@ function calc(room) {
   };
 }
 
-function buildPositions(limitCm, spacingMm) {
-  const out = [];
-  for (let pos = state.constants.offset; pos < limitCm; pos += spacingMm / 10) out.push(pos);
-  return out;
+function buildPositions(limitCm, spacingMm, edgeCm = state.constants.offset) {
+  const count = countBySpacing(limitCm, spacingMm, edgeCm);
+  if (!count) return [];
+  if (count === 1) return [Math.min(edgeCm, limitCm / 2)];
+
+  const start = Math.min(edgeCm, limitCm / 2);
+  const end = Math.max(start, limitCm - edgeCm);
+  const actualSpacing = (end - start) / (count - 1);
+  return Array.from({ length: count }, (_, idx) => start + idx * actualSpacing);
 }
 
 function updateZoomUI() {
@@ -388,9 +414,9 @@ function renderTotals() {
 
 function renderScheme(room) {
   const r = calc(room);
-  const bearingLinePositionsCm = buildPositions(r.W, room.c);
-  const mountingLinePositionsCm = buildPositions(r.L, room.b);
-  const hangerPositionsCm = buildPositions(r.L, room.a);
+  const bearingLinePositionsCm = buildPositions(r.W, room.c, state.constants.offset);
+  const mountingLinePositionsCm = buildPositions(r.L, room.b, state.constants.offset);
+  const hangerPositionsCm = buildPositions(r.L, room.a, state.constants.offset);
   const extensionPoints = [];
   const pad = 40;
   const w = 760;
@@ -505,15 +531,15 @@ function renderFormulas(room) {
       items: [
         `W = min(X, Y) = min(${X}, ${Y}) = ${W} cm`,
         `L = max(X, Y) = max(${X}, ${Y}) = ${L} cm`,
-        `Носещи CD редове = ceil((W - o) / (c / 10)) = ceil((${W} - ${offset}) / (${room.c} / 10)) = ${r.bearingCount}`,
-        `Монтажни CD редове = ceil((L - o) / (b / 10)) = ceil((${L} - ${offset}) / (${room.b} / 10)) = ${r.mountingCount}`,
+        `Носещи CD редове = ceil((W - o) / (c / 10)) + 1 = ceil((${W} - ${offset}) / (${room.c} / 10)) + 1 = ${r.bearingCount}`,
+        `Монтажни CD редове = ceil((L - o) / (b / 10)) + 1 = ceil((${L} - ${offset}) / (${room.b} / 10)) + 1 = ${r.mountingCount}`,
         `Носещи CD метри = Носещи редове × (L / 100) = ${r.bearingCount} × (${L} / 100) = ${f2(r.bearingLengthTotal)} m`,
         `Монтажни CD метри = Монтажни редове × (W / 100) = ${r.mountingCount} × (${W} / 100) = ${f2(r.mountingLengthTotal)} m`,
         `CD бр. = ceil(Носещи m / CD дължина) + ceil(Монтажни m / CD дължина) = ceil(${f2(r.bearingLengthTotal)} / ${state.constants.cdLength}) + ceil(${f2(r.mountingLengthTotal)} / ${state.constants.cdLength}) = ${r.cdTotalProfiles}`,
         `UD дължина = 2 × (X + Y) / 100 = 2 × (${X} + ${Y}) / 100 = ${f2(r.udTotalLength)} m`,
         `UD бр. = ceil(UD дължина / UD дължина профил) = ceil(${f2(r.udTotalLength)} / ${state.constants.udLength}) = ${r.udProfiles}`,
         `Връзки = Носещи редове × Монтажни редове = ${r.bearingCount} × ${r.mountingCount} = ${r.crossConnectors}`,
-        `Окачвачи/носещ = ceil((L - o) / (a / 10)) = ceil((${L} - ${offset}) / (${room.a} / 10)) = ${r.hangersPerBearing}`,
+        `Окачвачи/носещ = ceil((L - o) / (a / 10)) + 1 = ceil((${L} - ${offset}) / (${room.a} / 10)) + 1 = ${r.hangersPerBearing}`,
         `Окачвачи общо = Носещи редове × Окачвачи/носещ = ${r.bearingCount} × ${r.hangersPerBearing} = ${r.hangersTotal}`,
         `udAnchorSpacingMm = ${udAnchorSpacingMm}`,
         `udAnchors = ceil(udTotalLength / (udAnchorSpacingMm / 1000)) = ceil(${f2(r.udTotalLength)} / (${udAnchorSpacingMm} / 1000)) = ${r.anchorsUd}`,
@@ -527,9 +553,9 @@ function renderFormulas(room) {
     {
       title: "Формули за изчертаване на схемата",
       items: [
-        `Позиции на носещи линии (cm) = [offset, offset + c/10, ... < W] = [${offset}, ${offset + room.c / 10}, ... < ${W}]`,
-        `Позиции на монтажни линии (cm) = [offset, offset + b/10, ... < L] = [${offset}, ${offset + room.b / 10}, ... < ${L}]`,
-        `Позиции на окачвачи (cm) = [offset, offset + a/10, ... < L] = [${offset}, ${offset + room.a / 10}, ... < ${L}]`,
+        `Позиции на носещи линии (cm) = ${r.bearingCount} позиции, разпределени от ${offset} cm до ${W - offset} cm`,
+        `Позиции на монтажни линии (cm) = ${r.mountingCount} позиции, разпределени от ${offset} cm до ${L - offset} cm`,
+        `Позиции на окачвачи (cm) = ${r.hangersPerBearing} позиции, разпределени от ${offset} cm до ${L - offset} cm`,
         `Хоризонтален мащаб = 760 / L = 760 / ${L} = ${f2(760 / L)}`,
         `Вертикален мащаб = 300 / W = 300 / ${W} = ${f2(300 / W)}`,
         `Координати в SVG = x = pad + позиция × хоризонтален мащаб, y = pad + позиция × вертикален мащаб (pad = 40)`,
@@ -592,6 +618,10 @@ function handleLoadClassChange() {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   if (!room) return;
   room.loadClass = el.load.value;
+  if (!getLoadClasses(room.fireProtection).includes(room.loadClass)) {
+    room.loadClass = getLoadClasses(room.fireProtection)[0];
+    el.load.value = room.loadClass;
+  }
   room.overrides.a = false;
   room.overrides.c = false;
   applyAutoABC(room);
@@ -604,6 +634,10 @@ el.load.addEventListener("input", handleLoadClassChange);
 el.fire.addEventListener("change", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
   room.fireProtection = el.fire.value === "true";
+  if (!getLoadClasses(room.fireProtection).includes(room.loadClass)) {
+    room.loadClass = getLoadClasses(room.fireProtection)[0];
+    el.load.value = room.loadClass;
+  }
   room.overrides.a = false;
   room.overrides.c = false;
   applyAutoABC(room);
