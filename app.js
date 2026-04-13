@@ -279,7 +279,6 @@ function renderScheme(room) {
   const yScale = h / r.W;
 
   let svg = `<rect x="${pad}" y="${pad}" width="${w}" height="${h}" fill="#eef6ff" stroke="#13588f" stroke-width="2" />`;
-  svg += `<text x="${pad}" y="24" fill="#1b456f">${room.name}: W=${r.W}cm, L=${r.L}cm, offset=${state.constants.offset}cm</text>`;
 
   mountingPos.forEach((p) => {
     const x = pad + p * xScale;
