@@ -17,54 +17,82 @@
       <h2 id="form-title">Нова стая</h2>
       <form id="room-form">
         <input type="hidden" id="room-id" />
-        <div class="grid">
-          <label>Име на стая
-            <input id="name" required placeholder="Дневна" />
-          </label>
-          <label>X (см)
-            <input id="xCm" type="number" min="1" step="1" required />
-          </label>
-          <label>Y (см)
-            <input id="yCm" type="number" min="1" step="1" required />
-          </label>
-          <label>Площ (м²)
-            <input id="areaM2" type="number" min="0.01" step="0.01" required />
-          </label>
-          <label>Клас на натоварване
-            <select id="loadClass" required>
-              <option value="0.15">до 0.15 kN/m²</option>
-              <option value="0.30">до 0.30 kN/m²</option>
-              <option value="0.40">до 0.40 kN/m²</option>
-              <option value="0.50">до 0.50 kN/m²</option>
-              <option value="0.65">до 0.65 kN/m²</option>
-            </select>
-          </label>
-          <label>Пожарозащита (отдолу)
-            <select id="fireProtection">
-              <option value="false">Без</option>
-              <option value="true">Да</option>
-            </select>
-          </label>
-          <label>Осево разст. носещи профили c (мм)
-            <input id="cSpacing" type="number" min="300" step="10" list="cSpacingOptions" required />
-            <datalist id="cSpacingOptions"></datalist>
-          </label>
-          <label>Разст. между окачвачи a (мм)
-            <input id="hangerSpacing" type="number" min="300" step="10" list="hangerSpacingOptions" required />
-            <datalist id="hangerSpacingOptions"></datalist>
-          </label>
-          <label>Разст. монтажни CD b (мм)
-            <input id="mountSpacing" type="number" min="200" step="10" value="500" />
-          </label>
-          <label>Разст. дюбели към UD (мм)
-            <input id="udDowelSpacing" type="number" min="150" step="10" value="500" />
-          </label>
-          <label>Дължина на 1 CD профил (м)
-            <input id="cdProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
-          </label>
-          <label>Дължина на 1 UD профил (м)
-            <input id="udProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
-          </label>
+        <div class="settings-panels">
+          <fieldset class="settings-card">
+            <legend>Настройки на стаята</legend>
+            <div class="grid">
+              <label>Име на стая
+                <input id="name" required placeholder="Дневна" />
+              </label>
+              <label>X (см)
+                <input id="xCm" type="number" min="1" step="1" required />
+              </label>
+              <label>Y (см)
+                <input id="yCm" type="number" min="1" step="1" required />
+              </label>
+              <label>Площ (м²)
+                <input id="areaM2" type="number" min="0.01" step="0.01" required />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="settings-card">
+            <legend>Профили (таблица Knauf)</legend>
+            <div class="grid">
+              <label>Клас на натоварване
+                <select id="loadClass" required>
+                  <option value="0.15">до 0.15 kN/m²</option>
+                  <option value="0.30">до 0.30 kN/m²</option>
+                  <option value="0.40">до 0.40 kN/m²</option>
+                  <option value="0.50">до 0.50 kN/m²</option>
+                  <option value="0.65">до 0.65 kN/m²</option>
+                </select>
+              </label>
+              <label>Пожарозащита (отдолу)
+                <select id="fireProtection">
+                  <option value="false">Без</option>
+                  <option value="true">Да</option>
+                </select>
+              </label>
+              <label>Тип плоскост (за b)
+                <select id="boardType">
+                  <option value="12.5_silent">12.5 mm Silentboard (b = 400)</option>
+                  <option value="12.5_or_2x12.5" selected>12.5 mm / 2x12.5 mm (b = 500)</option>
+                  <option value="15_or_2x15">15 mm / 2x15 mm (b = 550)</option>
+                  <option value="18_or_25_18">18 mm / 25+18 mm (b = 625)</option>
+                  <option value="20_or_2x20">20 mm / 2x20 mm (b = 625)</option>
+                  <option value="25">25 mm (b = 800)</option>
+                  <option value="custom">Ръчно</option>
+                </select>
+              </label>
+              <label>Осево разст. носещи профили c (мм)
+                <input id="cSpacing" type="number" min="300" step="10" list="cSpacingOptions" required />
+                <datalist id="cSpacingOptions"></datalist>
+              </label>
+              <label>Разст. между окачвачи a (мм)
+                <input id="hangerSpacing" type="number" min="300" step="10" list="hangerSpacingOptions" required />
+                <datalist id="hangerSpacingOptions"></datalist>
+              </label>
+              <label>Разст. монтажни CD b (мм)
+                <input id="mountSpacing" type="number" min="200" step="10" value="500" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="settings-card">
+            <legend>Допълнителни константи</legend>
+            <div class="grid">
+              <label>Разст. дюбели към UD (мм)
+                <input id="udDowelSpacing" type="number" min="150" step="10" value="500" />
+              </label>
+              <label>Дължина на 1 CD профил (м)
+                <input id="cdProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
+              </label>
+              <label>Дължина на 1 UD профил (м)
+                <input id="udProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
+              </label>
+            </div>
+          </fieldset>
         </div>
         <div class="actions">
           <button type="submit">Запази стая</button>
@@ -79,7 +107,7 @@
         <span class="legend-item"><span class="swatch swatch-ud"></span>UD профил (периферен)</span>
         <span class="legend-item"><span class="swatch swatch-cd-primary"></span>Носещ CD</span>
         <span class="legend-item"><span class="swatch swatch-cd-secondary"></span>Монтажен CD</span>
-        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи профил на 30 см от стената</span>
+        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи/последен носещ CD: c - 30 мм</span>
       </p>
       <div class="scheme-wrap">
         <svg id="scheme" viewBox="0 0 800 420" aria-label="Схема на профилите"></svg>
@@ -119,6 +147,18 @@
         </table>
       </div>
       <p id="table-note"></p>
+    </section>
+
+    <section class="panel table-panel">
+      <h2>Таблица с константи и лимити (D113)</h2>
+      <div class="table-scroll">
+        <table id="constants-table">
+          <thead>
+            <tr><th>Константа</th><th>Стойност</th><th>Описание</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
