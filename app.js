@@ -45,6 +45,11 @@ const el = {
   udLength: document.getElementById("const-ud-length"),
   offset: document.getElementById("const-offset"),
   udAnchor: document.getElementById("const-ud-anchor"),
+  metalCross: document.getElementById("const-metal-cross"),
+  metalHanger: document.getElementById("const-metal-hanger"),
+  drywallPerM2: document.getElementById("const-drywall-per-m2"),
+  anchorsPerHanger: document.getElementById("const-anchors-per-hanger"),
+  wastePercent: document.getElementById("const-waste-percent"),
 
   formTitle: document.getElementById("form-title"),
   roomId: document.getElementById("room-id"),
@@ -86,13 +91,30 @@ function loadState() {
         udLength: Number(raw.constants?.udLength) || 4,
         offset: Number(raw.constants?.offset) || 30,
         udAnchorSpacing: Number(raw.constants?.udAnchorSpacing) || 625,
+        metalScrewsPerCrossConnector: Number(raw.constants?.metalScrewsPerCrossConnector) || 4,
+        metalScrewsPerDirectHanger: Number(raw.constants?.metalScrewsPerDirectHanger) || 2,
+        drywallScrewsPerM2: Number(raw.constants?.drywallScrewsPerM2) || 25,
+        anchorsPerDirectHanger: Number(raw.constants?.anchorsPerDirectHanger) || 1,
+        wastePercent: Number(raw.constants?.wastePercent) || 10,
+        roundingMode: raw.constants?.roundingMode || "up",
       },
       activeRoomId: raw.activeRoomId || "",
     };
   } catch {
     return {
       rooms: [],
-      constants: { cdLength: 4, udLength: 4, offset: 30, udAnchorSpacing: 625 },
+      constants: {
+        cdLength: 4,
+        udLength: 4,
+        offset: 30,
+        udAnchorSpacing: 625,
+        metalScrewsPerCrossConnector: 4,
+        metalScrewsPerDirectHanger: 2,
+        drywallScrewsPerM2: 25,
+        anchorsPerDirectHanger: 1,
+        wastePercent: 10,
+        roundingMode: "up",
+      },
       activeRoomId: "",
     };
   }
@@ -175,7 +197,13 @@ function calc(room) {
   const udProfiles = Math.ceil(udTotalLength / state.constants.udLength);
 
   const anchorsUd = Math.ceil(udTotalLength / (state.constants.udAnchorSpacing / 1000));
-  const anchorsTotal = anchorsUd + hangersTotal;
+  const anchorsHangers = hangersTotal * state.constants.anchorsPerDirectHanger;
+  const anchorsTotal = anchorsUd + anchorsHangers;
+  const metalScrews = Math.ceil(
+    (crossConnectors * state.constants.metalScrewsPerCrossConnector)
+    + (hangersTotal * state.constants.metalScrewsPerDirectHanger),
+  );
+  const drywallScrews = Math.ceil(Number(room.area) * state.constants.drywallScrewsPerM2);
 
   const extBearing = bearingCount * (Math.ceil((L / 100) / state.constants.cdLength) - 1);
   const extMounting = mountingCount * (Math.ceil((W / 100) / state.constants.cdLength) - 1);
@@ -198,7 +226,10 @@ function calc(room) {
     udTotalLength,
     udProfiles,
     anchorsUd,
+    anchorsHangers,
     anchorsTotal,
+    metalScrews,
+    drywallScrews,
     extensionsTotal,
   };
 }
@@ -224,6 +255,11 @@ function render() {
   el.udLength.value = state.constants.udLength;
   el.offset.value = state.constants.offset;
   el.udAnchor.value = state.constants.udAnchorSpacing;
+  el.metalCross.value = state.constants.metalScrewsPerCrossConnector;
+  el.metalHanger.value = state.constants.metalScrewsPerDirectHanger;
+  el.drywallPerM2.value = state.constants.drywallScrewsPerM2;
+  el.anchorsPerHanger.value = state.constants.anchorsPerDirectHanger;
+  el.wastePercent.value = state.constants.wastePercent;
 
   renderTabs();
   renderTable();
@@ -281,7 +317,7 @@ function renderTable() {
   state.rooms.forEach((room) => {
     const r = calc(room);
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsTotal}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
+    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
     el.tbody.appendChild(tr);
   });
 }
@@ -404,7 +440,10 @@ function renderFormulas(room) {
         `Окачвачи/носещ = ceil((L - o) / (a / 10)) = ceil((${L} - ${offset}) / (${room.a} / 10)) = ${r.hangersPerBearing}`,
         `Окачвачи общо = Носещи редове × Окачвачи/носещ = ${r.bearingCount} × ${r.hangersPerBearing} = ${r.hangersTotal}`,
         `Дюбели UD = ceil(UD дължина / стъпка UD) = ceil(${f2(r.udTotalLength)} / ${f2(anchorStep)}) = ${r.anchorsUd}`,
-        `Дюбели общо = Дюбели UD + Окачвачи = ${r.anchorsUd} + ${r.hangersTotal} = ${r.anchorsTotal}`,
+        `Дюбели окачвачи = Окачвачи × дюбели/окачвач = ${r.hangersTotal} × ${state.constants.anchorsPerDirectHanger} = ${r.anchorsHangers}`,
+        `Дюбели общо = Дюбели UD + Дюбели окачвачи = ${r.anchorsUd} + ${r.anchorsHangers} = ${r.anchorsTotal}`,
+        `Винтове метал = ceil((Връзки × ${state.constants.metalScrewsPerCrossConnector}) + (Окачвачи × ${state.constants.metalScrewsPerDirectHanger})) = ${r.metalScrews}`,
+        `Винтове ГК = ceil(Площ × ${state.constants.drywallScrewsPerM2}) = ceil(${f2(room.area)} × ${state.constants.drywallScrewsPerM2}) = ${r.drywallScrews}`,
         `Удължители = Носещи удълж. + Монтажни удълж. = ${r.extensionsTotal}`,
       ],
     },
@@ -526,6 +565,12 @@ el.constantsForm.addEventListener("input", () => {
   state.constants.udLength = Number(el.udLength.value);
   state.constants.offset = Number(el.offset.value);
   state.constants.udAnchorSpacing = Number(el.udAnchor.value);
+  state.constants.metalScrewsPerCrossConnector = Number(el.metalCross.value);
+  state.constants.metalScrewsPerDirectHanger = Number(el.metalHanger.value);
+  state.constants.drywallScrewsPerM2 = Number(el.drywallPerM2.value);
+  state.constants.anchorsPerDirectHanger = Number(el.anchorsPerHanger.value);
+  state.constants.wastePercent = Number(el.wastePercent.value);
+  state.constants.roundingMode = "up";
   render();
 });
 
@@ -599,7 +644,8 @@ function xmlEscape(value) {
 function exportRoomsToExcel() {
   const headers = [
     "Стая", "X", "Y", "Площ", "Носещи CD (бр реда)", "Монтажни CD (бр реда)",
-    "Носещи m", "Монтажни m", "CD бр.", "UD бр.", "Връзки", "Окачвачи", "Дюбели", "Удължители",
+    "Носещи m", "Монтажни m", "CD бр.", "UD бр.", "Връзки", "Окачвачи",
+    "Дюбели UD", "Дюбели окачвачи", "Дюбели общо", "Винтове метал", "Винтове ГК", "Удължители",
   ];
 
   const rows = state.rooms.map((room) => {
@@ -617,7 +663,11 @@ function exportRoomsToExcel() {
       r.udProfiles,
       r.crossConnectors,
       r.hangersTotal,
+      r.anchorsUd,
+      r.anchorsHangers,
       r.anchorsTotal,
+      r.metalScrews,
+      r.drywallScrews,
       r.extensionsTotal,
     ];
   });

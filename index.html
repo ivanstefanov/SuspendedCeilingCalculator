@@ -28,6 +28,21 @@
         <label>Разстояние за закрепване UD (mm)
           <input id="const-ud-anchor" type="number" min="100" step="5" value="625" />
         </label>
+        <label>Винтове метал / кръстата връзка
+          <input id="const-metal-cross" type="number" min="1" step="1" value="4" />
+        </label>
+        <label>Винтове метал / директен окачвач
+          <input id="const-metal-hanger" type="number" min="1" step="1" value="2" />
+        </label>
+        <label>Винтове ГК / m²
+          <input id="const-drywall-per-m2" type="number" min="1" step="1" value="25" />
+        </label>
+        <label>Дюбели / директен окачвач
+          <input id="const-anchors-per-hanger" type="number" min="1" step="1" value="1" />
+        </label>
+        <label>Резерв (%) 
+          <input id="const-waste-percent" type="number" min="0" step="1" value="10" />
+        </label>
       </form>
     </section>
 
@@ -123,7 +138,7 @@
         <table id="rooms-table">
           <thead>
             <tr>
-              <th>Стая</th><th>X</th><th>Y</th><th>Площ</th><th>Носещи CD (бр реда)</th><th>Монтажни CD (бр реда)</th><th>Носещи m</th><th>Монтажни m</th><th>CD бр.</th><th>UD бр.</th><th>Връзки</th><th>Окачвачи</th><th>Дюбели</th><th>Удължители</th><th>Действия</th>
+              <th>Стая</th><th>X</th><th>Y</th><th>Площ</th><th>Носещи CD (бр реда)</th><th>Монтажни CD (бр реда)</th><th>Носещи m</th><th>Монтажни m</th><th>CD бр.</th><th>UD бр.</th><th>Връзки</th><th>Окачвачи</th><th>Дюбели UD</th><th>Дюбели окачвачи</th><th>Дюбели общо</th><th>Винтове метал</th><th>Винтове ГК</th><th>Удължители</th><th>Действия</th>
             </tr>
           </thead>
           <tbody></tbody>
