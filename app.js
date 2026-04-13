@@ -64,6 +64,7 @@ const el = {
   cancelRoom: document.getElementById("cancel-room"),
   roomTabs: document.getElementById("room-tabs"),
   tbody: document.querySelector("#rooms-table tbody"),
+  formulas: document.getElementById("formulas"),
   scheme: document.getElementById("scheme"),
   schemeLegend: document.getElementById("scheme-legend"),
 };
@@ -150,11 +151,11 @@ function calc(room) {
   const L = Math.max(X, Y);
   const offset = state.constants.offset;
 
-  const bearingCount = Math.ceil((W - offset) / (room.c / 10)) + 1;
+  const bearingCount = Math.floor((W - offset) / (room.c / 10)) + 1;
   const bearingLengthTotal = bearingCount * (L / 100);
   const bearingProfiles = Math.ceil(bearingLengthTotal / state.constants.cdLength);
 
-  const mountingCount = Math.ceil((L - offset) / (room.b / 10)) + 1;
+  const mountingCount = Math.floor((L - offset) / (room.b / 10)) + 1;
   const mountingLengthTotal = mountingCount * (W / 100);
   const mountingProfiles = Math.ceil(mountingLengthTotal / state.constants.cdLength);
 
@@ -162,7 +163,7 @@ function calc(room) {
   const cdTotalProfiles = bearingProfiles + mountingProfiles;
 
   const crossConnectors = bearingCount * mountingCount;
-  const hangersPerBearing = Math.ceil((L - offset) / (room.a / 10)) + 1;
+  const hangersPerBearing = Math.floor((L - offset) / (room.a / 10)) + 1;
   const hangersTotal = bearingCount * hangersPerBearing;
 
   const udTotalLength = (2 * (X + Y)) / 100;
@@ -215,6 +216,7 @@ function render() {
   if (active) {
     bindRoomToForm(active);
     renderScheme(active);
+    renderFormulas(active);
   }
   saveState();
 }
@@ -307,6 +309,63 @@ function renderScheme(room) {
     .join("");
 }
 
+function f2(value) {
+  return Number(value).toFixed(2);
+}
+
+function renderFormulas(room) {
+  const r = calc(room);
+  const X = Number(room.width);
+  const Y = Number(room.length);
+  const W = Math.min(X, Y);
+  const L = Math.max(X, Y);
+  const offset = state.constants.offset;
+  const anchorStep = state.constants.udAnchorSpacing / 1000;
+
+  const rows = [
+    {
+      title: "Изчисления за количествата",
+      items: [
+        `W = min(X, Y) = min(${X}, ${Y}) = ${W} cm`,
+        `L = max(X, Y) = max(${X}, ${Y}) = ${L} cm`,
+        `Носещи CD редове = floor((W - o) / (c / 10)) + 1 = floor((${W} - ${offset}) / (${room.c} / 10)) + 1 = ${r.bearingCount}`,
+        `Монтажни CD редове = floor((L - o) / (b / 10)) + 1 = floor((${L} - ${offset}) / (${room.b} / 10)) + 1 = ${r.mountingCount}`,
+        `Носещи CD метри = Носещи редове × (L / 100) = ${r.bearingCount} × (${L} / 100) = ${f2(r.bearingLengthTotal)} m`,
+        `Монтажни CD метри = Монтажни редове × (W / 100) = ${r.mountingCount} × (${W} / 100) = ${f2(r.mountingLengthTotal)} m`,
+        `CD бр. = ceil(Носещи m / CD дължина) + ceil(Монтажни m / CD дължина) = ceil(${f2(r.bearingLengthTotal)} / ${state.constants.cdLength}) + ceil(${f2(r.mountingLengthTotal)} / ${state.constants.cdLength}) = ${r.cdTotalProfiles}`,
+        `UD дължина = 2 × (X + Y) / 100 = 2 × (${X} + ${Y}) / 100 = ${f2(r.udTotalLength)} m`,
+        `UD бр. = ceil(UD дължина / UD дължина профил) = ceil(${f2(r.udTotalLength)} / ${state.constants.udLength}) = ${r.udProfiles}`,
+        `Връзки = Носещи редове × Монтажни редове = ${r.bearingCount} × ${r.mountingCount} = ${r.crossConnectors}`,
+        `Окачвачи/носещ = floor((L - o) / (a / 10)) + 1 = floor((${L} - ${offset}) / (${room.a} / 10)) + 1 = ${r.hangersPerBearing}`,
+        `Окачвачи общо = Носещи редове × Окачвачи/носещ = ${r.bearingCount} × ${r.hangersPerBearing} = ${r.hangersTotal}`,
+        `Дюбели UD = ceil(UD дължина / стъпка UD) = ceil(${f2(r.udTotalLength)} / ${f2(anchorStep)}) = ${r.anchorsUd}`,
+        `Дюбели общо = Дюбели UD + Окачвачи = ${r.anchorsUd} + ${r.hangersTotal} = ${r.anchorsTotal}`,
+        `Удължители = Носещи удълж. + Монтажни удълж. = ${r.extensionsTotal}`,
+      ],
+    },
+    {
+      title: "Формули за изчертаване на схемата",
+      items: [
+        `bearingPos = [o, o + c/10, o + 2c/10, ... ≤ W] = [${offset}, ${offset + room.c / 10}, ... ≤ ${W}]`,
+        `mountingPos = [o, o + b/10, o + 2b/10, ... ≤ L] = [${offset}, ${offset + room.b / 10}, ... ≤ ${L}]`,
+        `xScale = 760 / L = 760 / ${L} = ${f2(760 / L)}`,
+        `yScale = 300 / W = 300 / ${W} = ${f2(300 / W)}`,
+        `x(line) = pad + p × xScale, y(line) = pad + p × yScale (pad = 40)`,
+      ],
+    },
+  ];
+
+  el.formulas.innerHTML = `
+    <h3>Формули за активната стая: ${room.name}</h3>
+    ${rows.map((group) => `
+      <div class="formulas-group">
+        <h4>${group.title}</h4>
+        ${group.items.map((item) => `<div class="formula-row">${item}</div>`).join("")}
+      </div>
+    `).join("")}
+  `;
+}
+
 function updateRoomFromForm() {
   const room = state.rooms.find((r) => r.id === el.roomId.value);
   if (!room) return;
@@ -347,14 +406,18 @@ el.area.addEventListener("input", () => {
   render();
 });
 
-el.load.addEventListener("change", () => {
+function handleLoadClassChange() {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
+  if (!room) return;
   room.loadClass = el.load.value;
   room.overrides.a = false;
   room.overrides.c = false;
   applyAutoABC(room);
   render();
-});
+}
+
+el.load.addEventListener("change", handleLoadClassChange);
+el.load.addEventListener("input", handleLoadClassChange);
 
 el.fire.addEventListener("change", () => {
   const room = state.rooms.find((r) => r.id === state.activeRoomId);
