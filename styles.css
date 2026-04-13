@@ -44,6 +44,7 @@ main {
 .visualization-panel { grid-column: span 9; }
 .legend-panel { grid-column: span 3; }
 .table-panel { grid-column: 1 / -1; }
+.formulas-panel { grid-column: 1 / -1; }
 
 h2 { margin-top: 0; margin-bottom: .8rem; font-size: 1.05rem; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: .8rem; flex-wrap: wrap; }
@@ -105,6 +106,7 @@ button.danger { background: var(--danger); }
 #rooms-table { border-collapse: collapse; min-width: 1600px; width: 100%; }
 th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; white-space: nowrap; }
 thead th { background: var(--primary); color: #fff; position: sticky; top: 0; }
+tfoot td { background: #eaf3ff; font-weight: 700; }
 tr:nth-child(even) td { background: #f7fbff; }
 .table-actions { margin-top: 0; margin-bottom: .6rem; }
 .table-actions button,
@@ -149,11 +151,12 @@ tr:nth-child(even) td { background: #f7fbff; }
 @media (max-width: 1200px) {
   .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3) { grid-column: span 6; }
   .visualization-panel,
-  .legend-panel { grid-column: 1 / -1; }
+  .legend-panel,
+  .formulas-panel { grid-column: 1 / -1; }
 }
 
 @media (max-width: 860px) {
   main { grid-template-columns: 1fr; }
-  .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3), .visualization-panel, .legend-panel, .table-panel { grid-column: auto; }
+  .panel:nth-child(1), .panel:nth-child(2), .panel:nth-child(3), .visualization-panel, .legend-panel, .table-panel, .formulas-panel { grid-column: auto; }
   #scheme { width: 760px; height: 380px; }
 }
