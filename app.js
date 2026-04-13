@@ -49,7 +49,6 @@ const el = {
   metalHanger: document.getElementById("const-metal-hanger"),
   drywallPerM2: document.getElementById("const-drywall-per-m2"),
   anchorsPerHanger: document.getElementById("const-anchors-per-hanger"),
-  wastePercent: document.getElementById("const-waste-percent"),
 
   formTitle: document.getElementById("form-title"),
   roomId: document.getElementById("room-id"),
@@ -67,7 +66,6 @@ const el = {
 
   saveRoom: document.getElementById("save-room"),
   cancelRoom: document.getElementById("cancel-room"),
-  roomTabs: document.getElementById("room-tabs"),
   tbody: document.querySelector("#rooms-table tbody"),
   formulas: document.getElementById("formulas"),
   scheme: document.getElementById("scheme"),
@@ -259,9 +257,6 @@ function render() {
   el.metalHanger.value = state.constants.metalScrewsPerDirectHanger;
   el.drywallPerM2.value = state.constants.drywallScrewsPerM2;
   el.anchorsPerHanger.value = state.constants.anchorsPerDirectHanger;
-  el.wastePercent.value = state.constants.wastePercent;
-
-  renderTabs();
   renderTable();
   const active = state.rooms.find((r) => r.id === state.activeRoomId);
   if (active) {
@@ -273,31 +268,8 @@ function render() {
   saveState();
 }
 
-function renderTabs() {
-  el.roomTabs.innerHTML = "";
-  state.rooms.forEach((room) => {
-    const b = document.createElement("button");
-    b.className = room.id === state.activeRoomId ? "tab active" : "tab";
-    b.textContent = room.name;
-    b.onclick = () => { state.activeRoomId = room.id; areaDirty = !!room.overrides?.area; render(); };
-    el.roomTabs.appendChild(b);
-  });
-  const add = document.createElement("button");
-  add.className = "tab add";
-  add.textContent = "+ Нова стая";
-  add.onclick = () => {
-    const room = createRoom();
-    room.name = `Стая ${state.rooms.length + 1}`;
-    state.rooms.push(room);
-    state.activeRoomId = room.id;
-    areaDirty = false;
-    render();
-  };
-  el.roomTabs.appendChild(add);
-}
-
 function bindRoomToForm(room) {
-  el.formTitle.textContent = `Редакция: ${room.name}`;
+  el.formTitle.textContent = "Стаи";
   el.roomId.value = room.id;
   el.name.value = room.name;
   el.width.value = room.width;
@@ -317,7 +289,7 @@ function renderTable() {
   state.rooms.forEach((room) => {
     const r = calc(room);
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="edit">Редакция</button><button data-id="${room.id}" data-action="del" class="danger">Изтрий</button></td>`;
+    tr.innerHTML = `<td>${room.name}</td><td>${room.width}</td><td>${room.length}</td><td>${Number(room.area).toFixed(2)}</td><td>${r.bearingCount}</td><td>${r.mountingCount}</td><td>${r.bearingLengthTotal.toFixed(2)}</td><td>${r.mountingLengthTotal.toFixed(2)}</td><td>${r.cdTotalProfiles}</td><td>${r.udProfiles}</td><td>${r.crossConnectors}</td><td>${r.hangersTotal}</td><td>${r.anchorsUd}</td><td>${r.anchorsHangers}</td><td>${r.anchorsTotal}</td><td>${r.metalScrews}</td><td>${r.drywallScrews}</td><td>${r.extensionsTotal}</td><td class="actions"><button data-id="${room.id}" data-action="view" title="Преглед">👁️</button><button data-id="${room.id}" data-action="edit" title="Редакция">✏️</button><button data-id="${room.id}" data-action="del" class="danger" title="Изтрий">🗑️</button></td>`;
     el.tbody.appendChild(tr);
   });
 }
@@ -421,7 +393,7 @@ function renderFormulas(room) {
   const W = Math.min(X, Y);
   const L = Math.max(X, Y);
   const offset = state.constants.offset;
-  const anchorStep = state.constants.udAnchorSpacing / 1000;
+  const udAnchorSpacingMm = Number(state.constants.udAnchorSpacing);
 
   const rows = [
     {
@@ -439,7 +411,8 @@ function renderFormulas(room) {
         `Връзки = Носещи редове × Монтажни редове = ${r.bearingCount} × ${r.mountingCount} = ${r.crossConnectors}`,
         `Окачвачи/носещ = ceil((L - o) / (a / 10)) = ceil((${L} - ${offset}) / (${room.a} / 10)) = ${r.hangersPerBearing}`,
         `Окачвачи общо = Носещи редове × Окачвачи/носещ = ${r.bearingCount} × ${r.hangersPerBearing} = ${r.hangersTotal}`,
-        `Дюбели UD = ceil(UD дължина / стъпка UD) = ceil(${f2(r.udTotalLength)} / ${f2(anchorStep)}) = ${r.anchorsUd}`,
+        `udAnchorSpacingMm = ${udAnchorSpacingMm}`,
+        `udAnchors = ceil(udTotalLength / (udAnchorSpacingMm / 1000)) = ceil(${f2(r.udTotalLength)} / (${udAnchorSpacingMm} / 1000)) = ${r.anchorsUd}`,
         `Дюбели окачвачи = Окачвачи × дюбели/окачвач = ${r.hangersTotal} × ${state.constants.anchorsPerDirectHanger} = ${r.anchorsHangers}`,
         `Дюбели общо = Дюбели UD + Дюбели окачвачи = ${r.anchorsUd} + ${r.anchorsHangers} = ${r.anchorsTotal}`,
         `Винтове метал = ceil((Връзки × ${state.constants.metalScrewsPerCrossConnector}) + (Окачвачи × ${state.constants.metalScrewsPerDirectHanger})) = ${r.metalScrews}`,
@@ -569,8 +542,16 @@ el.constantsForm.addEventListener("input", () => {
   state.constants.metalScrewsPerDirectHanger = Number(el.metalHanger.value);
   state.constants.drywallScrewsPerM2 = Number(el.drywallPerM2.value);
   state.constants.anchorsPerDirectHanger = Number(el.anchorsPerHanger.value);
-  state.constants.wastePercent = Number(el.wastePercent.value);
   state.constants.roundingMode = "up";
+  render();
+});
+
+document.getElementById("new-room").addEventListener("click", () => {
+  const room = createRoom();
+  room.name = `Стая ${state.rooms.length + 1}`;
+  state.rooms.push(room);
+  state.activeRoomId = room.id;
+  areaDirty = false;
   render();
 });
 
@@ -593,12 +574,24 @@ el.tbody.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   const id = button.dataset.id;
+  const room = state.rooms.find((item) => item.id === id);
+  if (!room) return;
+  if (button.dataset.action === "view") {
+    state.activeRoomId = id;
+    areaDirty = !!room.overrides?.area;
+    bindRoomToForm(room);
+    renderScheme(room);
+    renderFormulas(room);
+    saveState();
+    return;
+  }
   if (button.dataset.action === "edit") {
     state.activeRoomId = id;
+    areaDirty = !!room.overrides?.area;
     render();
     return;
   }
-  state.rooms = state.rooms.filter((room) => room.id !== id);
+  state.rooms = state.rooms.filter((item) => item.id !== id);
   if (!state.rooms.length) state.rooms.push(createRoom());
   state.activeRoomId = state.rooms[0].id;
   render();
