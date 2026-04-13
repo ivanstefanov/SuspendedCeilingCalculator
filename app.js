@@ -36,6 +36,8 @@ const loadInput = document.getElementById("loadClass");
 const fireInput = document.getElementById("fireProtection");
 const mountSpacingInput = document.getElementById("mountSpacing");
 const udDowelInput = document.getElementById("udDowelSpacing");
+const cdProfileLengthInput = document.getElementById("cdProfileLengthM");
+const udProfileLengthInput = document.getElementById("udProfileLengthM");
 const tbody = document.querySelector("#rooms-table tbody");
 const tableNote = document.getElementById("table-note");
 const scheme = document.getElementById("scheme");
@@ -78,6 +80,11 @@ function ceilDiv(a, b) {
   return Math.ceil(a / b);
 }
 
+function countWithWallOffset(spanMm, spacingMm, firstOffsetMm = 300) {
+  if (spanMm <= firstOffsetMm * 2) return 1;
+  return Math.ceil((spanMm - firstOffsetMm * 2) / spacingMm) + 1;
+}
+
 function calcRoomMetrics(room) {
   const xCm = Number(room.xCm);
   const yCm = Number(room.yCm);
@@ -88,31 +95,33 @@ function calcRoomMetrics(room) {
   const { cSpacingMm, hangerSpacingMm } = pickKnaufParams(room.loadClass, room.fireProtection);
   const bSpacingMm = Number(room.mountSpacingMm || 500);
   const udDowelSpacing = Number(room.udDowelSpacingMm || 500);
+  const cdProfileLengthM = Number(room.cdProfileLengthM || 4);
+  const udProfileLengthM = Number(room.udProfileLengthM || 4);
 
   const udNeededM = 2 * (W + L);
-  const udProfiles4m = ceilDiv(udNeededM, 4);
+  const udProfiles = ceilDiv(udNeededM, udProfileLengthM);
 
-  const primaryRows = Math.floor((W * 1000) / cSpacingMm) + 1;
+  const primaryRows = countWithWallOffset(W * 1000, cSpacingMm, 300);
   const primaryTotalM = primaryRows * L;
-  const primaryProfiles4m = ceilDiv(primaryTotalM, 4);
+  const primaryProfiles = ceilDiv(primaryTotalM, cdProfileLengthM);
 
-  const secondaryRows = Math.floor((L * 1000) / bSpacingMm) + 1;
+  const secondaryRows = countWithWallOffset(L * 1000, bSpacingMm, 300);
   const secondaryTotalM = secondaryRows * W;
-  const secondaryProfiles4m = ceilDiv(secondaryTotalM, 4);
+  const secondaryProfiles = ceilDiv(secondaryTotalM, cdProfileLengthM);
 
   const totalCdM = primaryTotalM + secondaryTotalM;
-  const totalCdProfiles = primaryProfiles4m + secondaryProfiles4m;
+  const totalCdProfiles = primaryProfiles + secondaryProfiles;
 
   const crossConnectors = primaryRows * secondaryRows;
-  const directPerPrimary = Math.floor((L * 1000) / hangerSpacingMm) + 1;
+  const directPerPrimary = countWithWallOffset(L * 1000, hangerSpacingMm, 300);
   const directTotal = directPerPrimary * primaryRows;
 
   const udDowels = Math.ceil((udNeededM * 1000) / udDowelSpacing);
   const ceilingDowels = directTotal;
   const totalMetalDowels = udDowels + ceilingDowels;
 
-  const extPrimary = Math.max(0, ceilDiv(L, 4) - 1) * primaryRows;
-  const extSecondary = Math.max(0, ceilDiv(W, 4) - 1) * secondaryRows;
+  const extPrimary = Math.max(0, ceilDiv(L, cdProfileLengthM) - 1) * primaryRows;
+  const extSecondary = Math.max(0, ceilDiv(W, cdProfileLengthM) - 1) * secondaryRows;
   const totalExt = extPrimary + extSecondary;
 
   return {
@@ -120,13 +129,13 @@ function calcRoomMetrics(room) {
     wShortM: W,
     lLongM: L,
     udNeededM,
-    udProfiles4m,
+    udProfiles,
     primaryRows,
     primaryTotalM,
-    primaryProfiles4m,
+    primaryProfiles,
     secondaryRows,
     secondaryTotalM,
-    secondaryProfiles4m,
+    secondaryProfiles,
     totalCdM,
     totalCdProfiles,
     crossConnectors,
@@ -141,6 +150,9 @@ function calcRoomMetrics(room) {
     cSpacingMm,
     hangerSpacingMm,
     bSpacingMm,
+    cdProfileLengthM,
+    udProfileLengthM,
+    firstProfileOffsetMm: 300,
   };
 }
 
@@ -155,8 +167,8 @@ function renderTable() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${room.name}</td><td>${m.xCm}</td><td>${m.yCm}</td><td>${format(m.areaM2)}</td><td>${format(m.wShortM)}</td><td>${format(m.lLongM)}</td>
-      <td>${format(m.udNeededM)}</td><td>${m.udProfiles4m}</td><td>${m.primaryRows}</td><td>${format(m.primaryTotalM)}</td>
-      <td>${m.primaryProfiles4m}</td><td>${m.secondaryRows}</td><td>${format(m.secondaryTotalM)}</td><td>${m.secondaryProfiles4m}</td>
+      <td>${format(m.udNeededM)}</td><td>${m.udProfiles}</td><td>${m.primaryRows}</td><td>${format(m.primaryTotalM)}</td>
+      <td>${m.primaryProfiles}</td><td>${m.secondaryRows}</td><td>${format(m.secondaryTotalM)}</td><td>${m.secondaryProfiles}</td>
       <td>${format(m.totalCdM)}</td><td>${m.totalCdProfiles}</td><td>${m.crossConnectors}</td><td>${m.directPerPrimary}</td>
       <td>${m.directTotal}</td><td>${m.udDowels}</td><td>${m.ceilingDowels}</td><td>${m.totalMetalDowels}</td>
       <td>${m.extPrimary}</td><td>${m.extSecondary}</td><td>${m.totalExt}</td>
@@ -169,7 +181,7 @@ function renderTable() {
     tbody.appendChild(tr);
   });
 
-  tableNote.textContent = "Бележка: c и a се избират автоматично по таблица Knauf според клас на натоварване и пожарозащита.";
+  tableNote.textContent = "Бележка: c и a се избират автоматично по таблица Knauf; първи профил/окачвач е на 300 мм от стената; броят профили се закръгля винаги нагоре.";
 
   const selected = rooms[0];
   if (selected) renderScheme(calcRoomMetrics(selected), selected.name);
@@ -189,19 +201,23 @@ function renderScheme(m, roomName) {
     <text x="${pad}" y="26" fill="#0f4f88" font-size="14">Стая: ${roomName}</text>
     <text x="${pad + 220}" y="26" fill="#0f4f88" font-size="14">W=${format(m.wShortM)} m, L=${format(m.lLongM)} m</text>
     <text x="${pad + 500}" y="26" fill="#0f4f88" font-size="14">c=${m.cSpacingMm} мм, b=${m.bSpacingMm} мм, a=${m.hangerSpacingMm} мм</text>
+    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи профил: ${m.firstProfileOffsetMm} мм</text>
   `;
 
   for (let i = 0; i < primaryCount; i++) {
-    const y = pad + (i * rh) / Math.max(primaryCount - 1, 1);
+    const y = primaryCount === 1 ? pad + rh / 2 : pad + (i * rh) / (primaryCount - 1);
     svg += `<line x1="${pad}" y1="${y}" x2="${pad + rw}" y2="${y}" stroke="#284e7a" stroke-width="2.5" />`;
   }
 
   for (let i = 0; i < secondaryCount; i++) {
-    const x = pad + (i * rw) / Math.max(secondaryCount - 1, 1);
+    const x = secondaryCount === 1 ? pad + rw / 2 : pad + (i * rw) / (secondaryCount - 1);
     svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + rh}" stroke="#7a99bd" stroke-width="1.7" />`;
   }
 
-  svg += "";
+  svg += `
+    <line x1="${pad + 6}" y1="${pad + 30}" x2="${pad + 6}" y2="${h - pad - 30}" stroke="#de8f00" stroke-dasharray="5,4" stroke-width="1.5"/>
+    <line x1="${pad + rw - 6}" y1="${pad + 30}" x2="${pad + rw - 6}" y2="${h - pad - 30}" stroke="#de8f00" stroke-dasharray="5,4" stroke-width="1.5"/>
+  `;
   scheme.innerHTML = svg;
 }
 
@@ -212,6 +228,8 @@ function resetForm() {
   document.getElementById("form-title").textContent = "Нова стая";
   mountSpacingInput.value = 500;
   udDowelInput.value = 500;
+  cdProfileLengthInput.value = 4;
+  udProfileLengthInput.value = 4;
 }
 
 form.addEventListener("submit", (e) => {
@@ -226,6 +244,8 @@ form.addEventListener("submit", (e) => {
     fireProtection: fireInput.value === "true",
     mountSpacingMm: Number(mountSpacingInput.value),
     udDowelSpacingMm: Number(udDowelInput.value),
+    cdProfileLengthM: Number(cdProfileLengthInput.value),
+    udProfileLengthM: Number(udProfileLengthInput.value),
   };
 
   const idx = rooms.findIndex((r) => r.id === room.id);
@@ -263,6 +283,8 @@ tbody.addEventListener("click", (e) => {
   fireInput.value = String(room.fireProtection);
   mountSpacingInput.value = room.mountSpacingMm || 500;
   udDowelInput.value = room.udDowelSpacingMm || 500;
+  cdProfileLengthInput.value = room.cdProfileLengthM || 4;
+  udProfileLengthInput.value = room.udProfileLengthM || 4;
   areaDirty = true;
   document.getElementById("form-title").textContent = `Редакция: ${room.name}`;
 });
