@@ -67,9 +67,14 @@ const el = {
   formulas: document.getElementById("formulas"),
   scheme: document.getElementById("scheme"),
   schemeLegend: document.getElementById("scheme-legend"),
+  zoomIn: document.getElementById("zoom-in"),
+  zoomOut: document.getElementById("zoom-out"),
+  zoomReset: document.getElementById("zoom-reset"),
+  zoomIndicator: document.getElementById("zoom-indicator"),
 };
 
 let areaDirty = false;
+let schemeZoom = 1;
 
 function loadState() {
   try {
@@ -204,6 +209,16 @@ function buildPositions(limitCm, spacingMm) {
   return out;
 }
 
+function updateZoomUI() {
+  el.scheme.style.setProperty("--scheme-zoom", String(schemeZoom));
+  el.zoomIndicator.textContent = `${Math.round(schemeZoom * 100)}%`;
+}
+
+function setZoom(nextZoom) {
+  schemeZoom = Math.min(2.5, Math.max(0.6, nextZoom));
+  updateZoomUI();
+}
+
 function render() {
   el.cdLength.value = state.constants.cdLength;
   el.udLength.value = state.constants.udLength;
@@ -218,6 +233,7 @@ function render() {
     renderScheme(active);
     renderFormulas(active);
   }
+  updateZoomUI();
   saveState();
 }
 
@@ -648,6 +664,17 @@ document.getElementById("import-json").addEventListener("change", async (event) 
     event.target.value = "";
   }
 });
+
+el.zoomIn.addEventListener("click", () => setZoom(schemeZoom + 0.2));
+el.zoomOut.addEventListener("click", () => setZoom(schemeZoom - 0.2));
+el.zoomReset.addEventListener("click", () => setZoom(1));
+
+el.scheme.addEventListener("wheel", (event) => {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  const delta = event.deltaY < 0 ? 0.1 : -0.1;
+  setZoom(schemeZoom + delta);
+}, { passive: false });
 
 document.getElementById("clear-all").addEventListener("click", () => {
   state.rooms = [createRoom()];
