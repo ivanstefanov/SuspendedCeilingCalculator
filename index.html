@@ -76,6 +76,9 @@
               <label>Разст. монтажни CD b (мм)
                 <input id="mountSpacing" type="number" min="200" step="10" value="500" />
               </label>
+              <label>Отстояние от стени (мм)
+                <input id="edgeOffset" type="number" min="0" step="10" value="300" />
+              </label>
             </div>
           </fieldset>
 
@@ -107,7 +110,7 @@
         <span class="legend-item"><span class="swatch swatch-ud"></span>UD профил (периферен)</span>
         <span class="legend-item"><span class="swatch swatch-cd-primary"></span>Носещ CD</span>
         <span class="legend-item"><span class="swatch swatch-cd-secondary"></span>Монтажен CD</span>
-        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи/последен носещ CD: c - 30 мм</span>
+        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи/последен носещ CD: c - отстояние</span>
       </p>
       <div class="scheme-wrap">
         <svg id="scheme" viewBox="0 0 800 420" aria-label="Схема на профилите"></svg>

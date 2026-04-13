@@ -47,6 +47,7 @@ const hangerSpacingInput = document.getElementById("hangerSpacing");
 const cSpacingOptions = document.getElementById("cSpacingOptions");
 const hangerSpacingOptions = document.getElementById("hangerSpacingOptions");
 const mountSpacingInput = document.getElementById("mountSpacing");
+const edgeOffsetInput = document.getElementById("edgeOffset");
 const boardTypeInput = document.getElementById("boardType");
 const udDowelInput = document.getElementById("udDowelSpacing");
 const cdProfileLengthInput = document.getElementById("cdProfileLengthM");
@@ -147,13 +148,14 @@ function calcRoomMetrics(room) {
   const udNeededM = 2 * (W + L);
   const udProfiles = ceilDiv(udNeededM, udProfileLengthM);
 
-  const firstCarrierOffsetMm = Math.max(0, cSpacingMm - 30);
+  const edgeOffsetMm = Number(room.edgeOffsetMm ?? 300);
+  const firstCarrierOffsetMm = Math.max(0, cSpacingMm - edgeOffsetMm);
   const primaryPositionsMm = buildPositionsMm(W * 1000, cSpacingMm, firstCarrierOffsetMm);
   const primaryRows = primaryPositionsMm.length;
   const primaryTotalM = primaryRows * L;
   const primaryProfiles = ceilDiv(primaryTotalM, cdProfileLengthM);
 
-  const secondaryPositionsMm = buildPositionsMm(L * 1000, bSpacingMm, 300);
+  const secondaryPositionsMm = buildPositionsMm(L * 1000, bSpacingMm, edgeOffsetMm);
   const secondaryRows = secondaryPositionsMm.length;
   const secondaryTotalM = secondaryRows * W;
   const secondaryProfiles = ceilDiv(secondaryTotalM, cdProfileLengthM);
@@ -162,7 +164,7 @@ function calcRoomMetrics(room) {
   const totalCdProfiles = primaryProfiles + secondaryProfiles;
 
   const crossConnectors = primaryRows * secondaryRows;
-  const hangerPositionsMm = buildPositionsMm(L * 1000, hangerSpacingMm, 300);
+  const hangerPositionsMm = buildPositionsMm(L * 1000, hangerSpacingMm, edgeOffsetMm);
   const directPerPrimary = hangerPositionsMm.length;
   const directTotal = directPerPrimary * primaryRows;
 
@@ -203,6 +205,7 @@ function calcRoomMetrics(room) {
     cdProfileLengthM,
     udProfileLengthM,
     firstCarrierOffsetMm,
+    edgeOffsetMm,
     primaryPositionsMm,
     secondaryPositionsMm,
     hangerPositionsMm,
@@ -253,8 +256,8 @@ function renderScheme(m, roomName) {
     <rect x="${pad}" y="${pad}" width="${rw}" height="${rh}" fill="#d9ecff" stroke="#0f4f88" stroke-width="3" />
     <text x="${pad}" y="26" fill="#0f4f88" font-size="14">Стая: ${roomName}</text>
     <text x="${pad + 220}" y="26" fill="#0f4f88" font-size="14">W=${format(m.wShortM)} m, L=${format(m.lLongM)} m</text>
-    <text x="${pad + 500}" y="26" fill="#0f4f88" font-size="14">c=${m.cSpacingMm} мм, b=${m.bSpacingMm} мм, a=${m.hangerSpacingMm} мм</text>
-    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи/последен носещ CD: c - 30 = ${m.firstCarrierOffsetMm} мм</text>
+    <text x="${pad + 325}" y="26" fill="#0f4f88" font-size="14">c=${m.cSpacingMm} мм (разстояние между носещите профили), b=${m.bSpacingMm} мм (разстояние между монтажните профили), a=${m.hangerSpacingMm} мм (разстояние между окачвачите)</text>
+    <text x="${pad}" y="${h - 10}" fill="#365b7f" font-size="13">Отстояние на първи/последен носещ CD: c - ${m.edgeOffsetMm} = ${m.firstCarrierOffsetMm} мм</text>
   `;
 
   const primaryScale = rh / (m.wShortM * 1000);
@@ -270,8 +273,8 @@ function renderScheme(m, roomName) {
   for (let i = 0; i < secondaryCount; i++) {
     const positionMm = m.secondaryPositionsMm[i];
     const x = pad + positionMm * secondaryScale;
-    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + rh}" stroke="#7a99bd" stroke-width="1.7" />`;
-    svg += `<text x="${x + 4}" y="${pad + 14}" fill="#476483" font-size="10">${Math.round(positionMm / 10)} см</text>`;
+    svg += `<line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + rh}" stroke="#2f9e44" stroke-width="1.7" />`;
+    svg += `<text x="${x + 4}" y="${pad + 14}" fill="#1f7a34" font-size="10">${Math.round(positionMm / 10)} см</text>`;
   }
 
   svg += `
@@ -287,6 +290,7 @@ function resetForm() {
   areaDirty = false;
   document.getElementById("form-title").textContent = "Нова стая";
   mountSpacingInput.value = 500;
+  edgeOffsetInput.value = 300;
   boardTypeInput.value = "12.5_or_2x12.5";
   udDowelInput.value = 500;
   cdProfileLengthInput.value = 4;
@@ -308,6 +312,7 @@ form.addEventListener("submit", (e) => {
     hangerSpacingMm: Number(hangerSpacingInput.value),
     boardType: boardTypeInput.value,
     mountSpacingMm: Number(mountSpacingInput.value),
+    edgeOffsetMm: Number(edgeOffsetInput.value),
     udDowelSpacingMm: Number(udDowelInput.value),
     cdProfileLengthM: Number(cdProfileLengthInput.value),
     udProfileLengthM: Number(udProfileLengthInput.value),
@@ -351,6 +356,7 @@ tbody.addEventListener("click", (e) => {
   hangerSpacingInput.value = room.hangerSpacingMm || pickKnaufParams(room.loadClass, room.fireProtection).hangerSpacingMm;
   boardTypeInput.value = room.boardType || "12.5_or_2x12.5";
   mountSpacingInput.value = room.mountSpacingMm || 500;
+  edgeOffsetInput.value = room.edgeOffsetMm ?? 300;
   udDowelInput.value = room.udDowelSpacingMm || 500;
   cdProfileLengthInput.value = room.cdProfileLengthM || 4;
   udProfileLengthInput.value = room.udProfileLengthM || 4;
@@ -410,7 +416,7 @@ document.getElementById("clear-all").addEventListener("click", () => {
 function renderConstantsTable() {
   const constants = [
     { key: "b (монтажни CD)", value: "400 / 500 / 550 / 625 / 800 мм", description: "Според тип и дебелина на плоскостта." },
-    { key: "Първи/последен носещ CD", value: "c - 30 мм", description: "Оста е симетрично разположена от двете крайни стени." },
+    { key: "Първи/последен носещ CD", value: "c - отстояние от стени", description: "Оста е симетрично разположена от двете крайни стени." },
     { key: "UD анкериране", value: "≤ 625 мм", description: "Закрепване на UD профила към периметъра." },
     { key: "Влизане в UD", value: "≥ 20 мм", description: "Носещи/монтажни профили влизат минимум 20 мм в UD." },
     { key: "Винтове към UD", value: "≤ 170 мм", description: "При носеща връзка по периметъра (вариант 2)." },
