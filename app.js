@@ -151,11 +151,11 @@ function calc(room) {
   const L = Math.max(X, Y);
   const offset = state.constants.offset;
 
-  const bearingCount = Math.floor((W - offset) / (room.c / 10)) + 1;
+  const bearingCount = Math.ceil((W - offset) / (room.c / 10));
   const bearingLengthTotal = bearingCount * (L / 100);
   const bearingProfiles = Math.ceil(bearingLengthTotal / state.constants.cdLength);
 
-  const mountingCount = Math.floor((L - offset) / (room.b / 10)) + 1;
+  const mountingCount = Math.ceil((L - offset) / (room.b / 10));
   const mountingLengthTotal = mountingCount * (W / 100);
   const mountingProfiles = Math.ceil(mountingLengthTotal / state.constants.cdLength);
 
@@ -163,7 +163,7 @@ function calc(room) {
   const cdTotalProfiles = bearingProfiles + mountingProfiles;
 
   const crossConnectors = bearingCount * mountingCount;
-  const hangersPerBearing = Math.floor((L - offset) / (room.a / 10)) + 1;
+  const hangersPerBearing = Math.ceil((L - offset) / (room.a / 10));
   const hangersTotal = bearingCount * hangersPerBearing;
 
   const udTotalLength = (2 * (X + Y)) / 100;
@@ -200,7 +200,7 @@ function calc(room) {
 
 function buildPositions(limitCm, spacingMm) {
   const out = [];
-  for (let pos = state.constants.offset; pos <= limitCm; pos += spacingMm / 10) out.push(pos);
+  for (let pos = state.constants.offset; pos < limitCm; pos += spacingMm / 10) out.push(pos);
   return out;
 }
 
@@ -356,15 +356,15 @@ function renderFormulas(room) {
       items: [
         `W = min(X, Y) = min(${X}, ${Y}) = ${W} cm`,
         `L = max(X, Y) = max(${X}, ${Y}) = ${L} cm`,
-        `Носещи CD редове = floor((W - o) / (c / 10)) + 1 = floor((${W} - ${offset}) / (${room.c} / 10)) + 1 = ${r.bearingCount}`,
-        `Монтажни CD редове = floor((L - o) / (b / 10)) + 1 = floor((${L} - ${offset}) / (${room.b} / 10)) + 1 = ${r.mountingCount}`,
+        `Носещи CD редове = ceil((W - o) / (c / 10)) = ceil((${W} - ${offset}) / (${room.c} / 10)) = ${r.bearingCount}`,
+        `Монтажни CD редове = ceil((L - o) / (b / 10)) = ceil((${L} - ${offset}) / (${room.b} / 10)) = ${r.mountingCount}`,
         `Носещи CD метри = Носещи редове × (L / 100) = ${r.bearingCount} × (${L} / 100) = ${f2(r.bearingLengthTotal)} m`,
         `Монтажни CD метри = Монтажни редове × (W / 100) = ${r.mountingCount} × (${W} / 100) = ${f2(r.mountingLengthTotal)} m`,
         `CD бр. = ceil(Носещи m / CD дължина) + ceil(Монтажни m / CD дължина) = ceil(${f2(r.bearingLengthTotal)} / ${state.constants.cdLength}) + ceil(${f2(r.mountingLengthTotal)} / ${state.constants.cdLength}) = ${r.cdTotalProfiles}`,
         `UD дължина = 2 × (X + Y) / 100 = 2 × (${X} + ${Y}) / 100 = ${f2(r.udTotalLength)} m`,
         `UD бр. = ceil(UD дължина / UD дължина профил) = ceil(${f2(r.udTotalLength)} / ${state.constants.udLength}) = ${r.udProfiles}`,
         `Връзки = Носещи редове × Монтажни редове = ${r.bearingCount} × ${r.mountingCount} = ${r.crossConnectors}`,
-        `Окачвачи/носещ = floor((L - o) / (a / 10)) + 1 = floor((${L} - ${offset}) / (${room.a} / 10)) + 1 = ${r.hangersPerBearing}`,
+        `Окачвачи/носещ = ceil((L - o) / (a / 10)) = ceil((${L} - ${offset}) / (${room.a} / 10)) = ${r.hangersPerBearing}`,
         `Окачвачи общо = Носещи редове × Окачвачи/носещ = ${r.bearingCount} × ${r.hangersPerBearing} = ${r.hangersTotal}`,
         `Дюбели UD = ceil(UD дължина / стъпка UD) = ceil(${f2(r.udTotalLength)} / ${f2(anchorStep)}) = ${r.anchorsUd}`,
         `Дюбели общо = Дюбели UD + Окачвачи = ${r.anchorsUd} + ${r.hangersTotal} = ${r.anchorsTotal}`,
@@ -374,8 +374,9 @@ function renderFormulas(room) {
     {
       title: "Формули за изчертаване на схемата",
       items: [
-        `bearingPos = [o, o + c/10, o + 2c/10, ... ≤ W] = [${offset}, ${offset + room.c / 10}, ... ≤ ${W}]`,
-        `mountingPos = [o, o + b/10, o + 2b/10, ... ≤ L] = [${offset}, ${offset + room.b / 10}, ... ≤ ${L}]`,
+        `bearingPos = [o, o + c/10, o + 2c/10, ... < W] = [${offset}, ${offset + room.c / 10}, ... < ${W}]`,
+        `mountingPos = [o, o + b/10, o + 2b/10, ... < L] = [${offset}, ${offset + room.b / 10}, ... < ${L}]`,
+        `hangerPos = [o, o + a/10, o + 2a/10, ... < L] = [${offset}, ${offset + room.a / 10}, ... < ${L}]`,
         `xScale = 760 / L = 760 / ${L} = ${f2(760 / L)}`,
         `yScale = 300 / W = 300 / ${W} = ${f2(300 / W)}`,
         `x(line) = pad + p × xScale, y(line) = pad + p × yScale (pad = 40)`,
