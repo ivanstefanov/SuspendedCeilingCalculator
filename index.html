@@ -51,6 +51,12 @@
           <label>Разст. дюбели към UD (мм)
             <input id="udDowelSpacing" type="number" min="150" step="10" value="500" />
           </label>
+          <label>Дължина на 1 CD профил (м)
+            <input id="cdProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
+          </label>
+          <label>Дължина на 1 UD профил (м)
+            <input id="udProfileLengthM" type="number" min="0.5" step="0.1" value="4" required />
+          </label>
         </div>
         <div class="actions">
           <button type="submit">Запази стая</button>
@@ -61,6 +67,12 @@
 
     <section class="panel">
       <h2>Схема UD/CD</h2>
+      <p class="scheme-legend">
+        <span class="legend-item"><span class="swatch swatch-ud"></span>UD профил (периферен)</span>
+        <span class="legend-item"><span class="swatch swatch-cd-primary"></span>Носещ CD</span>
+        <span class="legend-item"><span class="swatch swatch-cd-secondary"></span>Монтажен CD</span>
+        <span class="legend-item"><span class="swatch swatch-offset"></span>Първи профил на 30 см от стената</span>
+      </p>
       <div class="scheme-wrap">
         <svg id="scheme" viewBox="0 0 800 420" aria-label="Схема на профилите"></svg>
       </div>
@@ -85,9 +97,9 @@
           <thead>
             <tr>
               <th>Стая</th><th>X см</th><th>Y см</th><th>Площ м²</th><th>Къса страна W м</th><th>Дълга страна L м</th>
-              <th>UD нужни м</th><th>UD профили 4 м (бр.)</th><th>Носещи CD реда</th><th>Носещ CD общо м</th>
-              <th>Носещ CD профили 4 м (бр.)</th><th>Монтажни CD реда</th><th>Монтажен CD общо м</th>
-              <th>Монтажни CD профили 4 м (бр.)</th><th>Общо CD м</th><th>Общо CD профили 4 м (бр.)</th>
+              <th>UD нужни м</th><th>UD профили (бр.)</th><th>Носещи CD реда</th><th>Носещ CD общо м</th>
+              <th>Носещ CD профили (бр.)</th><th>Монтажни CD реда</th><th>Монтажен CD общо м</th>
+              <th>Монтажни CD профили (бр.)</th><th>Общо CD м</th><th>Общо CD профили (бр.)</th>
               <th>Кръстати връзки на едно ниво (бр.)</th><th>Директни окачвачи на 1 носещ профил (бр.)</th>
               <th>Директни окачвачи общо (бр.)</th><th>Метални дюбели към UD (бр.)</th>
               <th>Метални дюбели към тавана (бр.)</th><th>Общо метални дюбели (бр.)</th>
