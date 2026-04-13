@@ -22,9 +22,6 @@
         <label>Дължина UD профил (m)
           <input id="const-ud-length" type="number" min="0.5" step="0.1" value="4" />
         </label>
-        <label>Offset първи профил (cm)
-          <input id="const-offset" type="number" min="0" step="1" value="30" />
-        </label>
         <label>Разстояние за закрепване UD (mm)
           <input id="const-ud-anchor" type="number" min="100" step="5" value="625" />
         </label>
@@ -40,14 +37,11 @@
         <label>Дюбели / директен окачвач
           <input id="const-anchors-per-hanger" type="number" min="1" step="1" value="1" />
         </label>
-        <label>Резерв (%) 
-          <input id="const-waste-percent" type="number" min="0" step="1" value="10" />
-        </label>
       </form>
     </section>
 
     <section class="panel">
-      <h2 id="form-title">Нова стая</h2>
+      <h2 id="form-title">Стаи</h2>
       <form id="room-form" class="grid">
         <input type="hidden" id="room-id" />
         <label>Име
@@ -62,7 +56,17 @@
         <label>Площ (m²)
           <input id="room-area" type="number" min="0.01" step="0.01" required />
         </label>
+      </form>
+      <p id="validation" class="validation"></p>
+      <div class="actions">
+        <button id="save-room" title="Запази формата">Запази формата</button>
+        <button id="cancel-room" class="secondary" title="Нулирай формата">Нулирай формата</button>
+      </div>
+    </section>
 
+    <section class="panel">
+      <h2>Конструкция</h2>
+      <form class="grid">
         <label>Клас на натоварване
           <select id="room-load">
             <option value="0.15">до 0.15 kN/m²</option>
@@ -90,32 +94,19 @@
           </select>
         </label>
 
-        <label>a (mm)
+        <label>Разстояние между окачвачите (а)
           <input id="room-a" type="number" min="100" step="10" required />
         </label>
-        <label>b (mm)
+        <label>Разстояние между монтажните профили (b)
           <input id="room-b" type="number" min="100" step="10" required />
         </label>
-        <label>c (mm)
+        <label>Разстояние между носещите профили (c)
           <input id="room-c" type="number" min="100" step="10" required />
         </label>
+        <label>Offset първи профил (cm)
+          <input id="const-offset" type="number" min="0" step="1" value="30" />
+        </label>
       </form>
-      <p id="validation" class="validation"></p>
-      <div class="actions">
-        <button id="save-room">Запази стая</button>
-        <button id="cancel-room" class="secondary">Отказ</button>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Стаи</h2>
-      <div id="room-tabs" class="tabs"></div>
-      <div class="actions">
-        <button id="export-json">Експорт JSON</button>
-        <button id="export-excel">Експорт Excel</button>
-        <label class="import-label">Импорт JSON<input id="import-json" type="file" accept="application/json" /></label>
-        <button id="clear-all" class="danger">Изтрий всички</button>
-      </div>
     </section>
 
     <section class="panel">
@@ -134,6 +125,13 @@
 
     <section class="panel table-panel">
       <h2>Резултати по стаи</h2>
+      <div class="actions table-actions">
+        <button id="new-room" title="Нова стая" aria-label="Нова стая">➕</button>
+        <label class="import-label" title="Импорт JSON">📥 Импорт JSON<input id="import-json" type="file" accept="application/json" /></label>
+        <button id="export-json" title="Експорт JSON">📤 Експорт JSON</button>
+        <button id="export-excel" title="Експорт Excel">📊 Експорт Excel</button>
+        <button id="clear-all" class="danger" title="Изтрий всички">🗑️</button>
+      </div>
       <div class="table-scroll">
         <table id="rooms-table">
           <thead>

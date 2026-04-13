@@ -24,18 +24,18 @@ header h1 { margin: 0 0 .4rem; font-size: clamp(1.15rem, 2.2vw, 1.5rem); }
 header p { margin: 0; color: #dbe8f9; font-size: .95rem; }
 
 main {
-  max-width: 1400px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 1rem;
+  padding: .55rem;
   display: grid;
-  gap: 1rem;
+  gap: .55rem;
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 .panel {
   background: var(--panel);
   border-radius: 14px;
   border: 1px solid var(--border);
-  padding: 1rem;
+  padding: .8rem;
   box-shadow: var(--shadow);
 }
 .panel:nth-child(1),
@@ -71,11 +71,6 @@ button.danger { background: var(--danger); }
 .validation { margin: .6rem 0 0; color: var(--danger); font-weight: 600; }
 .import-label { background: var(--primary); color: #fff; border-radius: 10px; padding: .55rem .65rem; cursor: pointer; }
 .import-label input { display: none; }
-.tabs { display: flex; gap: .5rem; flex-wrap: wrap; }
-.tab { background: #e7eff9; color: var(--text); }
-.tab.active { background: var(--primary); color: #fff; }
-.tab.add { background: #2f9e44; color: #fff; }
-
 .zoom-controls { display: flex; align-items: center; gap: .4rem; }
 #zoom-indicator { color: var(--muted); font-size: .85rem; min-width: 46px; text-align: right; }
 
@@ -108,6 +103,24 @@ button.danger { background: var(--danger); }
 th, td { border: 1px solid #d5e0ea; padding: .35rem .45rem; font-size: .82rem; white-space: nowrap; }
 thead th { background: var(--primary); color: #fff; position: sticky; top: 0; }
 tr:nth-child(even) td { background: #f7fbff; }
+.table-actions { margin-top: 0; margin-bottom: .6rem; }
+.table-actions button,
+.table-actions .import-label {
+  min-width: 2.3rem;
+  justify-content: center;
+}
+.table-actions button:first-child,
+.table-actions button:last-child {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.actions button[title="Преглед"],
+.actions button[title="Редакция"],
+.actions button[title="Изтрий"] {
+  width: 2.1rem;
+  min-width: 2.1rem;
+  padding: .4rem;
+}
 .formulas { margin-top: .9rem; padding: .8rem; border: 1px solid var(--border); border-radius: 10px; background: #f9fcff; }
 .formulas h3 { margin: 0 0 .5rem; font-size: 1rem; }
 .formulas-group { margin-bottom: .65rem; }
