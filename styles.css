@@ -27,7 +27,7 @@ button.danger { background: #b12020; }
 .swatch { width:18px; height:4px; border-radius:3px; display:inline-block; }
 .swatch-ud { background:#0f4f88; height:6px; }
 .swatch-cd-primary { background:#284e7a; }
-.swatch-cd-secondary { background:#7a99bd; }
+.swatch-cd-secondary { background:#2f9e44; }
 .swatch-offset { background:#de8f00; border:1px dashed #a66800; height:6px; }
 .table-panel { overflow: hidden; }
 .table-scroll { overflow: auto; }
