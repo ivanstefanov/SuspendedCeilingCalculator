@@ -1,12 +1,23 @@
-export type SystemType = "D111" | "D112" | "D113" | "D116";
+export type SystemType = "D111" | "D112" | "D113" | "D116" | "CUSTOM";
 export type LoadClass = "0.15" | "0.30" | "0.40" | "0.50" | "0.65";
 export type BoardType =
-  | "12.5_silent"
-  | "12.5_or_2x12.5"
-  | "15_or_2x15"
-  | "18_or_25_18"
-  | "20_or_2x20"
-  | "25"
+  | "knauf_a_12.5"
+  | "knauf_h2_12.5"
+  | "knauf_df_12.5"
+  | "knauf_diamant_12.5"
+  | "knauf_silentboard_12.5"
+  | "knauf_2x12.5"
+  | "knauf_15"
+  | "knauf_2x15"
+  | "knauf_18"
+  | "knauf_20"
+  | "knauf_25"
+  | "knauf_25_18"
+  | "generic_12.5"
+  | "generic_2x12.5"
+  | "generic_15"
+  | "generic_18_or_20"
+  | "generic_25"
   | "custom";
 
 export type OverrideKey = "area" | "a" | "b" | "c" | "offset" | "udAnchorSpacing";
@@ -75,27 +86,86 @@ export interface CalcResult {
   extensionsTotal: number;
 }
 
+export type ValidationSeverity = "error" | "warning";
+
+export interface ValidationWarning {
+  code: string;
+  severity: ValidationSeverity;
+  message: string;
+}
+
 export const LOAD_CLASSES: LoadClass[] = ["0.15", "0.30", "0.40", "0.50", "0.65"];
 export const FIRE_LOAD_CLASSES: LoadClass[] = ["0.30", "0.40", "0.50", "0.65"];
 
 export const BOARD_TYPE_TO_B: Record<Exclude<BoardType, "custom">, number> = {
-  "12.5_silent": 400,
-  "12.5_or_2x12.5": 500,
-  "15_or_2x15": 550,
-  "18_or_25_18": 625,
-  "20_or_2x20": 625,
-  "25": 800,
+  "knauf_a_12.5": 500,
+  "knauf_h2_12.5": 500,
+  "knauf_df_12.5": 500,
+  "knauf_diamant_12.5": 500,
+  "knauf_silentboard_12.5": 400,
+  "knauf_2x12.5": 500,
+  "knauf_15": 550,
+  "knauf_2x15": 550,
+  "knauf_18": 625,
+  "knauf_20": 625,
+  "knauf_25": 800,
+  "knauf_25_18": 625,
+  "generic_12.5": 500,
+  "generic_2x12.5": 500,
+  "generic_15": 550,
+  "generic_18_or_20": 625,
+  "generic_25": 800,
 };
 
 export const BOARD_OPTIONS: Array<{ value: BoardType; label: string }> = [
-  { value: "12.5_silent", label: "12.5 Silentboard (400)" },
-  { value: "12.5_or_2x12.5", label: "12.5 / 2x12.5 (500)" },
-  { value: "15_or_2x15", label: "15 / 2x15 (550)" },
-  { value: "18_or_25_18", label: "18 / 25+18 (625)" },
-  { value: "20_or_2x20", label: "20 / 2x20 (625)" },
-  { value: "25", label: "25 (800)" },
-  { value: "custom", label: "Ръчно b" },
+  { value: "knauf_a_12.5", label: "Knauf A 12.5 mm - b 500" },
+  { value: "knauf_h2_12.5", label: "Knauf H2 12.5 mm - b 500" },
+  { value: "knauf_df_12.5", label: "Knauf DF/GKF 12.5 mm - b 500" },
+  { value: "knauf_diamant_12.5", label: "Knauf Diamant 12.5 mm - b 500" },
+  { value: "knauf_silentboard_12.5", label: "Knauf Silentboard 12.5 mm - b 400" },
+  { value: "knauf_2x12.5", label: "Knauf 2x12.5 mm - b 500" },
+  { value: "knauf_15", label: "Knauf 15 mm - b 550" },
+  { value: "knauf_2x15", label: "Knauf 2x15 mm - b 550" },
+  { value: "knauf_18", label: "Knauf 18 mm - b 625" },
+  { value: "knauf_20", label: "Knauf 20 mm - b 625" },
+  { value: "knauf_25", label: "Knauf 25 mm - b 800" },
+  { value: "knauf_25_18", label: "Knauf 25+18 mm - b 625" },
+  { value: "generic_12.5", label: "Generic 12.5 mm - b 500" },
+  { value: "generic_2x12.5", label: "Generic 2x12.5 mm - b 500" },
+  { value: "generic_15", label: "Generic 15 mm - b 550" },
+  { value: "generic_18_or_20", label: "Generic 18/20 mm - b 625" },
+  { value: "generic_25", label: "Generic 25 mm - b 800" },
+  { value: "custom", label: "Custom / ръчно b" },
 ];
+
+export function getBoardOptions(systemType: SystemType): Array<{ value: BoardType; label: string }> {
+  if (systemType === "CUSTOM") return BOARD_OPTIONS;
+  return BOARD_OPTIONS.filter((option) => option.value.startsWith("knauf_"));
+}
+
+export function getAllowedBValues(systemType: SystemType): number[] {
+  return Array.from(new Set(
+    getBoardOptions(systemType)
+      .filter((option) => option.value !== "custom")
+      .map((option) => BOARD_TYPE_TO_B[option.value as Exclude<BoardType, "custom">]),
+  )).sort((a, b) => a - b);
+}
+
+const LEGACY_BOARD_TYPE_MAP: Record<string, BoardType> = {
+  "12.5_silent": "knauf_silentboard_12.5",
+  "12.5_or_2x12.5": "knauf_a_12.5",
+  "15_or_2x15": "knauf_15",
+  "18_or_25_18": "knauf_18",
+  "20_or_2x20": "knauf_20",
+  "25": "knauf_25",
+};
+
+function normalizeBoardType(value: unknown): BoardType {
+  if (typeof value === "string" && value in LEGACY_BOARD_TYPE_MAP) return LEGACY_BOARD_TYPE_MAP[value];
+  if (typeof value === "string" && value in BOARD_TYPE_TO_B) return value as BoardType;
+  if (value === "custom") return "custom";
+  return "knauf_a_12.5";
+}
 
 export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
   D111: {
@@ -216,6 +286,22 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
       },
     },
   },
+  CUSTOM: {
+    label: "Custom - ръчни стойности",
+    materialHint: "Ръчна конструкция с начални стойности за стандартен CD грид: a 900 mm, b 500 mm, c 1000 mm.",
+    loadClasses: LOAD_CLASSES,
+    fireLoadClasses: [],
+    defaultLoadClass: "0.30",
+    defaultFireProtection: false,
+    defaultOffset: 30,
+    defaultUdAnchorSpacing: 1000,
+    table: {
+      false: {
+        1000: [900, 900, 900, 900, 900],
+      },
+      true: {},
+    },
+  },
 };
 
 export const DEFAULT_CONSTANTS: CalculatorConstants = {
@@ -246,6 +332,8 @@ export function getTableValue(room: Room, c = room.c, loadClass = room.loadClass
 }
 
 export function getValidCValues(room: Room): number[] {
+  if (room.systemType === "CUSTOM") return [room.c || 1000];
+
   const classes = getLoadClasses(room.systemType, room.fireProtection);
   const idx = classes.indexOf(room.loadClass);
   const table = getConstruction(room).table[String(room.fireProtection) as "false" | "true"] ?? {};
@@ -253,6 +341,20 @@ export function getValidCValues(room: Room): number[] {
     .map(Number)
     .filter((c) => table[c]?.[idx] != null)
     .sort((a, b) => a - b);
+}
+
+export function getAllowedAValues(room: Room): number[] {
+  if (room.systemType === "CUSTOM") return [room.a || 900];
+
+  const maxA = getTableValue(room);
+  if (!maxA) return [];
+
+  const values: number[] = [];
+  for (let value = 100; value <= maxA; value += 50) {
+    values.push(value);
+  }
+  if (!values.includes(maxA)) values.push(maxA);
+  return values.sort((a, b) => a - b);
 }
 
 export function createRoom(name = "Стая"): Room {
@@ -266,7 +368,7 @@ export function createRoom(name = "Стая"): Room {
     systemType: "D113",
     loadClass: construction.defaultLoadClass,
     fireProtection: construction.defaultFireProtection,
-    boardType: "12.5_or_2x12.5",
+    boardType: "knauf_a_12.5",
     a: 900,
     b: 500,
     c: 600,
@@ -280,6 +382,7 @@ export function createRoom(name = "Стая"): Room {
 
 export function normalizeRoom(room: Room): Room {
   const construction = getConstruction(room.systemType);
+  room.boardType = normalizeBoardType(room.boardType);
   room.fireProtection = Boolean(room.fireProtection && construction.fireLoadClasses.length);
   const incomingOverrides = room.overrides;
   room.overrides = {
@@ -300,6 +403,16 @@ export function normalizeRoom(room: Room): Room {
 
 export function getAutoABC(loadClass: LoadClass, fireProtection: boolean, boardType: BoardType, systemType: SystemType = "D113") {
   const construction = getConstruction(systemType);
+  if (systemType === "CUSTOM") {
+    return {
+      a: 900,
+      c: 1000,
+      b: boardType === "custom" ? 500 : BOARD_TYPE_TO_B[boardType] ?? 500,
+      offset: construction.defaultOffset,
+      udAnchorSpacing: construction.defaultUdAnchorSpacing,
+    };
+  }
+
   const table = construction.table[String(fireProtection) as "false" | "true"];
   const classes = getLoadClasses(systemType, fireProtection);
   const idx = Math.max(0, classes.indexOf(loadClass));
@@ -325,6 +438,16 @@ export function applyAutoABC(room: Room): void {
 }
 
 export function syncSpacingFromKnaufTable(room: Room, { keepC = true } = {}): void {
+  if (room.systemType === "CUSTOM") {
+    const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType, room.systemType);
+    if (!room.overrides.c) room.c = auto.c;
+    if (!room.overrides.a) room.a = auto.a;
+    if (!room.overrides.b) room.b = auto.b;
+    if (!room.overrides.offset) room.offset = auto.offset;
+    if (!room.overrides.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
+    return;
+  }
+
   const validCValues = getValidCValues(room);
   if (!keepC || !validCValues.includes(Number(room.c))) {
     room.c = validCValues[0] ?? room.c;
@@ -339,16 +462,93 @@ export function syncSpacingFromKnaufTable(room: Room, { keepC = true } = {}): vo
 }
 
 export function validateCombination(room: Room): boolean {
+  return !getValidationWarnings(room).some((warning) => warning.severity === "error");
+}
+
+export function getValidationWarnings(room: Room): ValidationWarning[] {
   normalizeRoom(room);
+  if (room.systemType === "CUSTOM") {
+    return [room.a, room.b, room.c, room.offset, room.udAnchorSpacing].every((value) => Number.isFinite(value) && value > 0)
+      ? []
+      : [{
+        code: "custom-positive-spacing",
+        severity: "error",
+        message: "Custom конструкцията изисква положителни стойности за a, b, c, начално отстояние и UD стъпка.",
+      }];
+  }
+
+  const warnings: ValidationWarning[] = [];
   const aExpected = getTableValue(room);
-  const validB = Object.values(BOARD_TYPE_TO_B).includes(room.b);
-  const validBForLoad = !(room.systemType === "D113"
-    && room.fireProtection === false
-    && room.c === 700
-    && room.loadClass === "0.65"
-    && room.b === 800);
-  const validA = Boolean(aExpected && room.a <= aExpected);
-  return Boolean(validA && validB && validBForLoad);
+  if (!aExpected) {
+    warnings.push({
+      code: "missing-table-value",
+      severity: "error",
+      message: "Няма допустима стойност по Knauf за тази комбинация от система, натоварване, огнезащита и c.",
+    });
+  } else if (room.a > aExpected) {
+    warnings.push({
+      code: "hanger-spacing-too-large",
+      severity: "error",
+      message: `Разстоянието a е ${room.a} mm, а максимумът по Knauf за тази комбинация е ${aExpected} mm.`,
+    });
+  }
+
+  if (!Object.values(BOARD_TYPE_TO_B).includes(room.b)) {
+    warnings.push({
+      code: "unsupported-board-spacing",
+      severity: "error",
+      message: "Стойността b не съответства на избран тип/дебелина гипсокартон. Използвай Custom, ако искаш ръчна стойност.",
+    });
+  }
+
+  if (room.systemType === "D113" && !room.fireProtection && room.c === 700 && room.loadClass === "0.65" && room.b === 800) {
+    warnings.push({
+      code: "d113-b800-footnote",
+      severity: "error",
+      message: "За D113 без огнезащита при c = 700 и товар 0.65 kN/m2 стойността не важи за b = 800 mm.",
+    });
+  }
+
+  const highLoadClasses: LoadClass[] = ["0.40", "0.50", "0.65"];
+  if (highLoadClasses.includes(room.loadClass)) {
+    warnings.push({
+      code: "hanger-load-class-040",
+      severity: "warning",
+      message: "За този клас натоварване документацията отбелязва използване на окачвачи с клас носимоспособност 0.40 kN.",
+    });
+  }
+
+  if (room.fireProtection && room.udAnchorSpacing > 625) {
+    warnings.push({
+      code: "fire-ud-anchor-spacing",
+      severity: "warning",
+      message: "При огнезащита/носеща връзка закрепването на UD профила трябва да е до 625 mm.",
+    });
+  } else if (!room.fireProtection && room.udAnchorSpacing > 1000) {
+    warnings.push({
+      code: "nonbearing-ud-anchor-spacing",
+      severity: "warning",
+      message: "При неносеща връзка документацията дава закрепване на UD профила до около 1000 mm.",
+    });
+  }
+
+  if (room.systemType === "D116") {
+    warnings.push({
+      code: "d116-material-split-missing",
+      severity: "warning",
+      message: "D116 използва UA + CD; текущият материален разчет още не отделя UA, CD и UW по отделни редове.",
+    });
+  }
+
+  if (room.systemType === "D111") {
+    warnings.push({
+      code: "d111-wood-material-split-missing",
+      severity: "warning",
+      message: "D111 е дървена подконструкция; текущият материален разчет е геометричен и не отделя дървени летви по система.",
+    });
+  }
+
+  return warnings;
 }
 
 export function countBySpacing(lengthCm: number, spacingMm: number, edgeCm: number): number {

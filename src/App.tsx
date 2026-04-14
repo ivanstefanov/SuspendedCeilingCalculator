@@ -1,6 +1,5 @@
 import { ChangeEvent, useState } from "react";
 import {
-  BOARD_OPTIONS,
   CalcResult,
   CalculatorConstants,
   CONSTRUCTION_TYPES,
@@ -14,8 +13,13 @@ import {
   createRoom,
   getConstruction,
   getAutoABC,
+  getAllowedAValues,
+  getAllowedBValues,
+  getBoardOptions,
   getLoadClasses,
   getTableValue,
+  getValidCValues,
+  getValidationWarnings,
   syncSpacingFromKnaufTable,
   validateCombination,
 } from "./domain/calculator";
@@ -171,7 +175,8 @@ function App() {
 
   const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId) ?? state.rooms[0];
   const activeResult = calc(activeRoom, state.constants);
-  const isValid = validateCombination(cloneRoom(activeRoom));
+  const activeWarnings = getValidationWarnings(cloneRoom(activeRoom));
+  const isValid = !activeWarnings.some((warning) => warning.severity === "error");
 
   function commit(updater: (draft: AppState) => void): void {
     setState((current) => {
@@ -224,6 +229,9 @@ function App() {
     updateActiveRoom((room) => {
       const construction = getConstruction(systemType);
       room.systemType = systemType;
+      if (systemType !== "CUSTOM" && !room.boardType.startsWith("knauf_")) {
+        room.boardType = "knauf_a_12.5";
+      }
       room.fireProtection = construction.defaultFireProtection;
       room.loadClass = construction.defaultLoadClass;
       room.overrides.a = false;
@@ -232,6 +240,13 @@ function App() {
       room.overrides.offset = false;
       room.overrides.udAnchorSpacing = false;
       syncSpacingFromKnaufTable(room, { keepC: false });
+      if (systemType === "CUSTOM") {
+        room.overrides.a = true;
+        room.overrides.b = true;
+        room.overrides.c = true;
+        room.overrides.offset = true;
+        room.overrides.udAnchorSpacing = true;
+      }
     });
   }
 
@@ -270,6 +285,7 @@ function App() {
       validation: {
         isValid: validateCombination(cloneRoom(room)),
         constructionLabel: getConstruction(room).label,
+        warnings: getValidationWarnings(cloneRoom(room)),
       },
       result,
       formulas: buildCalculationFormulas(room, result, state.constants),
@@ -359,6 +375,7 @@ function App() {
               room={activeRoom}
               loadClasses={loadClasses}
               isValid={isValid}
+              warnings={activeWarnings}
               onSystemChange={changeSystem}
               onResetAuto={resetAutoSpacing}
               onSave={saveCurrentState}
@@ -407,6 +424,7 @@ interface RoomEditorProps {
   room: Room;
   loadClasses: LoadClass[];
   isValid: boolean;
+  warnings: ReturnType<typeof getValidationWarnings>;
   onSystemChange: (systemType: SystemType) => void;
   onResetAuto: () => void;
   onSave: () => void;
@@ -414,8 +432,13 @@ interface RoomEditorProps {
   onRoomChange: (updater: (room: Room) => void) => void;
 }
 
-function RoomEditor({ room, loadClasses, isValid, onSystemChange, onResetAuto, onSave, saveStatus, onRoomChange }: RoomEditorProps) {
+function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onResetAuto, onSave, saveStatus, onRoomChange }: RoomEditorProps) {
   const construction = CONSTRUCTION_TYPES[room.systemType];
+  const boardOptions = getBoardOptions(room.systemType);
+  const aOptions = getAllowedAValues(cloneRoom(room));
+  const bOptions = getAllowedBValues(room.systemType);
+  const cOptions = getValidCValues(cloneRoom(room));
+  const isCustom = room.systemType === "CUSTOM";
   return (
     <section className="panel">
       <div className="panel-title">
@@ -485,7 +508,7 @@ function RoomEditor({ room, loadClasses, isValid, onSystemChange, onResetAuto, o
             draft.overrides.b = draft.boardType === "custom";
             syncSpacingFromKnaufTable(draft, { keepC: true });
           })}>
-            {BOARD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {boardOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
       </div>
@@ -495,21 +518,40 @@ function RoomEditor({ room, loadClasses, isValid, onSystemChange, onResetAuto, o
         <button type="button" className="ghost small" onClick={onResetAuto}>Върни по Knauf</button>
       </div>
       <div className="field-grid spacing-card">
-        <NumberField label="a Окачвачи (mm)" value={room.a} manual={room.overrides.a} onChange={(value) => onRoomChange((draft) => {
-          draft.a = value;
-          syncDistanceOverride(draft, "a");
-        })} />
-        <NumberField label="b Монтажни (mm)" value={room.b} manual={room.overrides.b} onChange={(value) => onRoomChange((draft) => {
-          draft.b = value;
-          syncDistanceOverride(draft, "b");
-        })} />
-        <NumberField label="c Носещи (mm)" value={room.c} manual={room.overrides.c} onChange={(value) => onRoomChange((draft) => {
-          draft.c = value;
-          syncDistanceOverride(draft, "c");
-          draft.overrides.a = false;
-          syncSpacingFromKnaufTable(draft, { keepC: true });
-        })} />
-        <NumberField label="Offset (cm)" value={room.offset} manual={room.overrides.offset} onChange={(value) => onRoomChange((draft) => {
+        {isCustom ? (
+          <>
+            <NumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} onChange={(value) => onRoomChange((draft) => {
+              draft.a = value;
+              syncDistanceOverride(draft, "a");
+            })} />
+            <NumberField label="b Разстояние между монтажни CD профили (mm)" value={room.b} manual={room.overrides.b} onChange={(value) => onRoomChange((draft) => {
+              draft.b = value;
+              syncDistanceOverride(draft, "b");
+            })} />
+            <NumberField label="c Разстояние между носещи CD/UA профили (mm)" value={room.c} manual={room.overrides.c} onChange={(value) => onRoomChange((draft) => {
+              draft.c = value;
+              syncDistanceOverride(draft, "c");
+            })} />
+          </>
+        ) : (
+          <>
+            <SelectNumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} options={aOptions} onChange={(value) => onRoomChange((draft) => {
+              draft.a = value;
+              syncDistanceOverride(draft, "a");
+            })} />
+            <SelectNumberField label="b Разстояние между монтажни CD профили (mm)" value={room.b} manual={room.overrides.b} options={bOptions} onChange={(value) => onRoomChange((draft) => {
+              draft.b = value;
+              syncDistanceOverride(draft, "b");
+            })} />
+            <SelectNumberField label="c Разстояние между носещи CD/UA профили (mm)" value={room.c} manual={room.overrides.c} options={cOptions} onChange={(value) => onRoomChange((draft) => {
+              draft.c = value;
+              syncDistanceOverride(draft, "c");
+              draft.overrides.a = false;
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })} />
+          </>
+        )}
+        <NumberField label="Начално отстояние (cm)" value={room.offset} manual={room.overrides.offset} onChange={(value) => onRoomChange((draft) => {
           draft.offset = value;
           syncDistanceOverride(draft, "offset");
         })} />
@@ -518,8 +560,35 @@ function RoomEditor({ room, loadClasses, isValid, onSystemChange, onResetAuto, o
           syncDistanceOverride(draft, "udAnchorSpacing");
         })} />
       </div>
+      {warnings.length > 0 && (
+        <div className="validation-list">
+          {warnings.map((warning) => (
+            <div key={warning.code} className={`validation-item ${warning.severity}`}>
+              {warning.message}
+            </div>
+          ))}
+        </div>
+      )}
       <p className="hint">{construction.materialHint}</p>
     </section>
+  );
+}
+
+function SelectNumberField({ label, value, manual, options, onChange }: {
+  label: string;
+  value: number;
+  manual: boolean;
+  options: number[];
+  onChange: (value: number) => void;
+}) {
+  const allOptions = options.includes(value) ? options : [...options, value].sort((a, b) => a - b);
+  return (
+    <label>{label}
+      <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+        {allOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+      <span className={manual ? "auto-state manual" : "auto-state"}>{manual ? "ръчно" : "по Knauf"}</span>
+    </label>
   );
 }
 
