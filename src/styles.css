@@ -73,6 +73,11 @@ button.danger {
   background: var(--accent);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 button.small {
   min-height: 26px;
   padding: 0.25rem 0.45rem;
@@ -108,7 +113,8 @@ label:not(.file-button) {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin: 0;
   line-height: 1.1;
 }
@@ -119,6 +125,10 @@ h1 {
 
 h2 {
   font-size: 0.98rem;
+}
+
+h3 {
+  font-size: 0.82rem;
 }
 
 .app-shell {
@@ -187,6 +197,10 @@ h2 {
   padding-bottom: 0.7rem;
 }
 
+.settings-panel {
+  width: 100%;
+}
+
 .panel-title,
 .visual-toolbar {
   display: flex;
@@ -215,6 +229,46 @@ h2 {
   gap: 0.45rem;
 }
 
+.settings-groups {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(170px, 1fr));
+  align-items: start;
+  gap: 0.55rem;
+}
+
+.settings-group {
+  display: grid;
+  gap: 0.42rem;
+  border-left: 1px solid var(--line);
+  padding-left: 0.65rem;
+  min-width: 0;
+}
+
+.settings-group:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.settings-group-head {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.settings-group-head h3 {
+  color: var(--ink);
+}
+
+.settings-group-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.settings-group .field-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .span-2 {
   grid-column: 1 / -1;
 }
@@ -226,6 +280,12 @@ h2 {
   border-radius: 8px;
   padding: 0.45rem;
   background: #ecf8f4;
+}
+
+.custom-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
 }
 
 .save-status {
@@ -292,6 +352,12 @@ h2 {
   color: #8d5a0a;
 }
 
+.field-note {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
 .spacing-head {
   justify-content: space-between;
   margin: 0.65rem 0 0.45rem;
@@ -327,6 +393,100 @@ h2 {
 .validation-item.error {
   border-color: rgba(217, 79, 61, 0.5);
   background: #fff0ed;
+  color: #923123;
+}
+
+.fire-cert-card {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: #fff;
+}
+
+.certification-block + .system-card {
+  margin-top: 0.25rem;
+}
+
+.fire-cert-card.complete {
+  border-left-color: #16804c;
+  background: #edf8f1;
+}
+
+.fire-cert-card.incomplete {
+  border-left-color: #b4872d;
+  background: #fff8e8;
+}
+
+.fire-cert-card.invalid {
+  border-left-color: var(--accent);
+  background: #fff0ed;
+}
+
+.fire-cert-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.fire-cert-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 0.15rem;
+  border-radius: 999px;
+  background: #16804c;
+}
+
+.fire-cert-card.incomplete .fire-cert-dot {
+  background: #b4872d;
+}
+
+.fire-cert-card.invalid .fire-cert-dot {
+  background: var(--accent);
+}
+
+.fire-cert-head strong {
+  display: block;
+  font-size: 0.82rem;
+}
+
+.fire-cert-head p,
+.fire-cert-issue p,
+.fire-cert-issue small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.fire-cert-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fire-cert-issue {
+  display: grid;
+  gap: 0.12rem;
+  border-top: 1px solid rgba(205, 215, 209, 0.9);
+  padding-top: 0.35rem;
+}
+
+.fire-cert-issue span {
+  width: max-content;
+  border-radius: 8px;
+  padding: 0.1rem 0.35rem;
+  background: #fff2df;
+  color: #8d5a0a;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.fire-cert-issue.invalid span {
+  background: #ffe4df;
   color: #923123;
 }
 
@@ -516,6 +676,16 @@ h2 {
   overflow: auto;
 }
 
+.empty-state {
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+  color: var(--muted);
+  background: #f7f8f4;
+  font-size: 0.84rem;
+}
+
 table {
   width: 100%;
   min-width: 1120px;
@@ -560,6 +730,45 @@ th {
   margin-bottom: 0.55rem;
 }
 
+.price-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.12rem;
+  margin-bottom: 0.65rem;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 8px;
+  padding: 0.55rem;
+  background: #edf8f5;
+}
+
+.price-summary span,
+.price-summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.price-summary strong {
+  color: var(--primary-strong);
+  font-size: 1.35rem;
+}
+
+.price-actions {
+  grid-row: 1 / span 3;
+  grid-column: 2;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-self: center;
+}
+
+.price-summary em {
+  grid-column: 1 / -1;
+  color: var(--primary-strong);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .material-list {
   display: grid;
   gap: 0.55rem;
@@ -581,10 +790,85 @@ th {
   grid-column: 1 / -1;
 }
 
+.material-row.priced {
+  grid-template-columns: minmax(0, 1fr) auto minmax(96px, 120px) auto;
+  align-items: end;
+}
+
+.material-row.priced label {
+  min-width: 0;
+}
+
+.material-row.priced input {
+  min-height: 28px;
+}
+
+.material-row.priced b {
+  color: var(--primary-strong);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.help-panel {
+  margin-top: 0.65rem;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.help-grid article {
+  border-top: 3px solid rgba(15, 118, 110, 0.35);
+  padding-top: 0.55rem;
+}
+
+.help-grid h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+}
+
+.help-grid p,
+.help-grid dd {
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.help-grid dl {
+  margin: 0;
+}
+
+.help-grid dt {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 @media (max-width: 1180px) {
   .workspace-grid,
-  .results-section {
+  .results-section,
+  .help-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-group {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-top: 0.55rem;
+  }
+
+  .settings-group:first-child,
+  .settings-group:nth-child(2) {
+    border-top: 0;
+    padding-top: 0;
   }
 
   .metric-strip {
@@ -609,8 +893,24 @@ th {
   }
 
   .field-grid,
-  .metric-strip {
+  .metric-strip,
+  .custom-profile-grid,
+  .material-row.priced,
+  .price-summary,
+  .settings-groups,
+  .settings-group .field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .price-actions {
+    grid-row: auto;
+    grid-column: auto;
+    justify-self: start;
+  }
+
+  .settings-group:nth-child(2) {
+    border-top: 1px solid var(--line);
+    padding-top: 0.55rem;
   }
 
   .drawing-scroll {
