@@ -119,7 +119,7 @@ export interface ValidationWarning {
   message: string;
 }
 
-export type FireCertificationStatus = "complete" | "incomplete" | "invalid";
+export type FireCertificationStatus = "none" | "complete" | "incomplete" | "invalid";
 export type FireCertificationIssueType = "missing" | "invalid";
 
 export interface FireCertificationIssue {
@@ -926,12 +926,12 @@ export function getFireCertificationCheck(room: Room): FireCertificationCheck {
   const fireRating = room.fireRating ?? "none";
 
   if (fireRating === "none") {
-    issues.push({
-      code: "fire-rating-missing",
-      type: "missing",
-      message: "Не е избрана EI конфигурация.",
-      allowedValues: FIRE_RATING_OPTIONS.filter((option) => option.value !== "none" && option.value !== "fire_table").map((option) => option.label),
-    });
+    return {
+      status: "none",
+      label: "Без огнезащита",
+      summary: "EI проверка не се прилага за тази стая.",
+      issues,
+    };
   }
 
   if (fireRating === "fire_table") {
@@ -946,13 +946,13 @@ export function getFireCertificationCheck(room: Room): FireCertificationCheck {
   if (room.systemType === "CUSTOM") {
     issues.push({
       code: "custom-system-not-certifiable",
-      type: fireRating === "none" ? "missing" : "invalid",
+      type: "invalid",
       message: "Custom конструкция не може да бъде потвърдена като пълна Knauf EI система. Избери D112, D113 или D116 системен вариант.",
       allowedValues: ["D112", "D113", "D116"],
     });
   }
 
-  if (fireRating !== "none" && fireRating !== "fire_table") {
+  if (fireRating !== "fire_table") {
     const specificRating = fireRating as Exclude<FireRating, "none" | "fire_table">;
     const allowedSystems = FIRE_CERT_ALLOWED_SYSTEMS[specificRating];
     if (!allowedSystems.includes(room.systemType)) {
@@ -1152,8 +1152,9 @@ export function getValidationWarnings(room: Room): ValidationWarning[] {
 function getFootnoteWarnings(room: Room): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
   const highLoadClasses: LoadClass[] = ["0.40", "0.50", "0.65"];
+  const hanger = HANGER_OPTIONS[getHangerType(room)];
 
-  if (highLoadClasses.includes(room.loadClass)) {
+  if (highLoadClasses.includes(room.loadClass) && hanger.capacityKn !== 0.4) {
     warnings.push({
       code: "hanger-load-class-040",
       severity: "warning",
@@ -1314,10 +1315,8 @@ export function buildPositions(limitCm: number, spacingMm: number, edgeCm = 30):
   if (count === 1) return [start];
 
   const finalInside = Math.max(start, limitCm - edgeCm);
-  const spacingCm = spacingMm / 10;
-  const positions = Array.from({ length: count }, (_, idx) => Math.min(start + idx * spacingCm, finalInside));
-  positions[positions.length - 1] = finalInside;
-  return Array.from(new Set(positions));
+  const actualSpacing = (finalInside - start) / (count - 1);
+  return Array.from({ length: count }, (_, idx) => start + idx * actualSpacing);
 }
 
 export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTANTS): CalcResult {
@@ -1449,10 +1448,12 @@ function addMaterial(
 export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstants = DEFAULT_CONSTANTS): MaterialTakeoffItem[] {
   constants = withDefaultConstants(constants);
   const map = new Map<string, MaterialTakeoffItem>();
+  const systems = new Set<SystemType>();
 
   rooms.forEach((sourceRoom) => {
     const room = { ...sourceRoom, overrides: { ...sourceRoom.overrides } };
     const result = calc(room, constants);
+    systems.add(room.systemType);
     const system = room.systemType.toLowerCase();
     const udRule = getUdAnchoringRule(room);
     const hanger = HANGER_OPTIONS[getHangerType(room)];
@@ -1729,8 +1730,13 @@ export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstan
     });
   });
 
+  const singleSystemPrefix = systems.size === 1 ? `${Array.from(systems)[0]} ` : "";
+
   return Array.from(map.values()).map((item) => ({
     ...item,
+    label: singleSystemPrefix && item.label.startsWith(singleSystemPrefix)
+      ? item.label.slice(singleSystemPrefix.length)
+      : item.label,
     quantity: applyReserve(item.quantity, item.unit, constants),
   }));
 }

@@ -214,6 +214,13 @@ h3 {
   justify-content: flex-end;
 }
 
+.room-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .eyebrow {
   margin: 0 0 0.15rem;
   color: var(--primary);
@@ -416,6 +423,11 @@ h3 {
   background: #edf8f1;
 }
 
+.fire-cert-card.none {
+  border-left-color: #7b8580;
+  background: #f7f8f4;
+}
+
 .fire-cert-card.incomplete {
   border-left-color: #b4872d;
   background: #fff8e8;
@@ -443,6 +455,10 @@ h3 {
 
 .fire-cert-card.incomplete .fire-cert-dot {
   background: #b4872d;
+}
+
+.fire-cert-card.none .fire-cert-dot {
+  background: #7b8580;
 }
 
 .fire-cert-card.invalid .fire-cert-dot {

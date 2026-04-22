@@ -184,6 +184,47 @@ function cloneRoom(room: Room): Room {
   return { ...room, overrides: { ...room.overrides } };
 }
 
+function formatHangerOptionLabel(option: (typeof HANGER_OPTIONS)[HangerType]): string {
+  return option.capacityKn == null
+    ? `${option.label} - без зададена носимоспособност`
+    : `${option.label} - ${option.capacityKn.toFixed(2)} kN`;
+}
+
+function recalculateRoomWithCurrentLogic(source: Room, constants: CalculatorConstants): Room {
+  const room = {
+    ...createRoom(source.name || "Стая"),
+    ...source,
+    overrides: { ...createRoom().overrides, ...source.overrides },
+  };
+  const manual = {
+    area: room.area,
+    a: room.a,
+    b: room.b,
+    c: room.c,
+    offset: room.offset,
+    udAnchorSpacing: room.udAnchorSpacing,
+  };
+
+  calc(room, constants);
+  if (room.loadInputMode === "auto") room.loadClass = getAutomaticLoadClass(room);
+  syncSpacingFromKnaufTable(room, { keepC: room.overrides.c });
+
+  const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType, room.systemType, room.d116Variant, room.d112Variant);
+  if (!room.overrides.offset) room.offset = auto.offset;
+  if (!room.overrides.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
+  if (!room.overrides.area && room.width && room.length) room.area = (room.width * room.length) / 10000;
+
+  if (room.overrides.area) room.area = manual.area;
+  if (room.overrides.a) room.a = manual.a;
+  if (room.overrides.b) room.b = manual.b;
+  if (room.overrides.c) room.c = manual.c;
+  if (room.overrides.offset) room.offset = manual.offset;
+  if (room.overrides.udAnchorSpacing) room.udAnchorSpacing = manual.udAnchorSpacing;
+
+  calc(room, constants);
+  return room;
+}
+
 function formatNumber(value: number, digits = 2): string {
   return Number(value).toFixed(digits);
 }
@@ -433,6 +474,16 @@ function App() {
     });
   }
 
+  function recalculateSavedRooms(): void {
+    commit((draft) => {
+      draft.rooms = draft.rooms.map((room) => recalculateRoomWithCurrentLogic(room, draft.constants));
+      const activeRoom = draft.rooms.find((room) => room.id === draft.activeRoomId);
+      if (activeRoom) {
+        draft.draftRoom = cloneRoom(activeRoom);
+      }
+    });
+  }
+
   function changeSystem(systemType: SystemType): void {
     updateActiveRoom((room) => {
       const construction = getConstruction(systemType);
@@ -606,6 +657,39 @@ function App() {
     URL.revokeObjectURL(link.href);
   }
 
+  function exportMaterialsExcel(): void {
+    const escapeXml = (value: unknown) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    const sourceLabel = {
+      "knauf-table": "по Knauf таблица",
+      geometry: "геометрично",
+      estimate: "оценка",
+      manual: "ръчно",
+    };
+    const headers = ["Материал", "Количество", "Ед.", "Ед. цена", "Общо цена", "Точност", "Бележка"];
+    const rows = buildMaterialTakeoff(state.rooms, state.constants).map((row) => [
+      row.label,
+      row.quantity,
+      row.unit,
+      formatNumber(getMaterialUnitPrice(state.materialPrices, row.key)),
+      formatNumber(row.quantity * getMaterialUnitPrice(state.materialPrices, row.key)),
+      sourceLabel[row.source],
+      row.note,
+    ]);
+    const total = buildMaterialTakeoff(state.rooms, state.constants)
+      .reduce((sum, row) => sum + row.quantity * getMaterialUnitPrice(state.materialPrices, row.key), 0);
+    rows.push(["Общо предварителна цена", "", "", "", formatNumber(total), "", ""]);
+    const sheetRows = [headers, ...rows]
+      .map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`)
+      .join("");
+    const workbook = `<?xml version="1.0" encoding="UTF-8"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Материали"><Table>${sheetRows}</Table></Worksheet></Workbook>`;
+    const blob = new Blob([workbook], { type: "application/vnd.ms-excel" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "suspended-ceiling-materials-only.xls";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   async function searchOnlinePrices(): Promise<void> {
     const rows = buildMaterialTakeoff(state.rooms, state.constants)
       .filter((row) => getMaterialUnitPrice(state.materialPrices, row.key) === 0);
@@ -701,6 +785,7 @@ function App() {
           })}
           onDelete={deleteRoom}
           onDeleteAll={deleteAllRooms}
+          onRecalculate={recalculateSavedRooms}
         />
         <MaterialsPanel
           rooms={state.rooms}
@@ -709,6 +794,7 @@ function App() {
           onReserveChange={(wastePercent) => commit((draft) => { draft.constants.wastePercent = wastePercent; })}
           onPriceChange={(key, price) => commit((draft) => { draft.materialPrices[key] = price; })}
           onSearchOnlinePrices={searchOnlinePrices}
+          onExportExcel={exportMaterialsExcel}
           priceSearchStatus={priceSearchStatus}
           onAutofillPrices={() => commit((draft) => {
             buildMaterialTakeoff(draft.rooms, draft.constants).forEach((row) => {
@@ -936,7 +1022,7 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
             draft.hangerType = event.target.value as HangerType;
           })}>
             {hangerOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value}>{formatHangerOptionLabel(option)}</option>
             ))}
           </select>
           <span className="field-note">{selectedHanger.useWhen}</span>
@@ -1039,6 +1125,8 @@ function NumberField({ label, value, manual, onChange }: { label: string; value:
 }
 
 function FireCertificationPanel({ check }: { check: ReturnType<typeof getFireCertificationCheck> }) {
+  if (check.status === "none") return null;
+
   return (
     <section className={`fire-cert-card ${check.status} certification-block`}>
       <div className="fire-cert-head">
@@ -1269,13 +1357,14 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
   );
 }
 
-function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDeleteAll }: {
+function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDeleteAll, onRecalculate }: {
   rooms: Room[];
   constants: CalculatorConstants;
   activeRoomId: string;
   onSelect: (roomId: string) => void;
   onDelete: (roomId: string) => void;
   onDeleteAll: () => void;
+  onRecalculate: () => void;
 }) {
   return (
     <section className="panel table-panel">
@@ -1284,7 +1373,10 @@ function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDele
           <p className="eyebrow">Стаи</p>
           <h2>Количества по стаи</h2>
         </div>
-        <button type="button" className="danger small" disabled={!rooms.length} onClick={onDeleteAll}>Изтрий всички</button>
+        <div className="room-table-actions">
+          <button type="button" className="ghost small" disabled={!rooms.length} onClick={onRecalculate}>Прекалкулирай</button>
+          <button type="button" className="danger small" disabled={!rooms.length} onClick={onDeleteAll}>Изтрий всички</button>
+        </div>
       </div>
       {!rooms.length ? (
         <p className="empty-state">Няма запазени стаи. Активната стая ще се появи тук след Save.</p>
@@ -1326,7 +1418,7 @@ function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDele
   );
 }
 
-function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserveChange, onPriceChange, onSearchOnlinePrices, onAutofillPrices }: {
+function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserveChange, onPriceChange, onSearchOnlinePrices, onAutofillPrices, onExportExcel }: {
   rooms: Room[];
   constants: CalculatorConstants;
   prices: MaterialPrices;
@@ -1335,6 +1427,7 @@ function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserve
   onPriceChange: (key: string, price: number) => void;
   onSearchOnlinePrices: () => void;
   onAutofillPrices: () => void;
+  onExportExcel: () => void;
 }) {
   const rows = buildMaterialTakeoff(rooms, constants);
   const totalPrice = rows.reduce((sum, row) => sum + row.quantity * getMaterialUnitPrice(prices, row.key), 0);
@@ -1360,6 +1453,7 @@ function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserve
         <strong>{formatCurrency(totalPrice)}</strong>
         <small>по въведените единични цени в евро, с включен резерв в количествата</small>
         <div className="price-actions">
+          <button type="button" className="ghost small" disabled={!rows.length} onClick={onExportExcel}>Експорт</button>
           <button type="button" className="ghost small" onClick={onSearchOnlinePrices}>Потърси цени</button>
           <button type="button" className="ghost small" onClick={onAutofillPrices}>Попълни ориентири</button>
         </div>

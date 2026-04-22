@@ -68,10 +68,10 @@ describe("calculator", () => {
     const positions = buildPositions(result.W, room.c, room.offset).map(Math.round);
 
     expect(result.bearingCount).toBe(9);
-    expect(positions).toEqual([30, 80, 130, 180, 230, 280, 330, 380, 390]);
+    expect(positions).toEqual([30, 75, 120, 165, 210, 255, 300, 345, 390]);
   });
 
-  it("places D113 profiles in a 200 x 200 cm room at the selected spacing instead of redistributing to 35 cm", () => {
+  it("places D113 profiles in a 200 x 200 cm room without exceeding selected spacing", () => {
     const room = makeRoom({
       width: 200,
       length: 200,
@@ -93,8 +93,16 @@ describe("calculator", () => {
     expect(result.cdTotalProfiles).toBe(8);
     expect(result.udProfiles).toBe(4);
     expect(result.anchorsUd).toBe(16);
-    expect(buildPositions(result.W, room.c, room.offset)).toEqual([30, 80, 130, 170]);
-    expect(buildPositions(result.L, room.a, room.offset)).toEqual([30, 110, 170]);
+    expect(buildPositions(result.W, room.c, room.offset)).toEqual([30, 76.66666666666666, 123.33333333333333, 170]);
+    expect(buildPositions(result.L, room.a, room.offset)).toEqual([30, 100, 170]);
+  });
+
+  it("redistributes short-room hanger positions while keeping Knauf maximum spacing", () => {
+    const positions = buildPositions(226, 800, 30);
+    const gaps = positions.slice(1).map((position, index) => position - positions[index]);
+
+    expect(positions.map(Math.round)).toEqual([30, 85, 141, 196]);
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(80);
   });
 
   it("counts profile pieces per line and UD pieces per side for practical purchasing", () => {
@@ -209,6 +217,13 @@ describe("calculator", () => {
     expect(check.issues.some((issue) => issue.code === "specific-fire-rating-missing")).toBe(true);
   });
 
+  it("does not require an EI configuration when fire protection is disabled", () => {
+    const check = getFireCertificationCheck(makeRoom({ fireRating: "none", fireProtection: false }));
+
+    expect(check.status).toBe("none");
+    expect(check.issues).toEqual([]);
+  });
+
   it("marks fire certification as invalid and reports allowed values", () => {
     const check = getFireCertificationCheck(makeRoom({
       fireRating: "ei90_bottom",
@@ -268,6 +283,7 @@ describe("calculator", () => {
     }));
 
     expect(warnings.some((warning) => warning.code === "hanger-type-capacity-review")).toBe(false);
+    expect(warnings.some((warning) => warning.code === "hanger-load-class-040")).toBe(false);
   });
 
   it("uses the selected hanger type in material takeoff rows", () => {
@@ -280,6 +296,28 @@ describe("calculator", () => {
     })], { ...DEFAULT_CONSTANTS, wastePercent: 0 });
 
     expect(rows.some((row) => row.key === "d113-hangers-anchorfix" && row.label.includes("Анкерфикс"))).toBe(true);
+  });
+
+  it("omits the system prefix from material labels when all rooms use one system", () => {
+    const rows = buildMaterialTakeoff([makeRoom({
+      systemType: "D113",
+      loadClass: "0.30",
+      c: 600,
+      a: 900,
+    })], { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+
+    expect(rows.find((row) => row.key === "d113-cd-60-27")?.label).toBe("CD 60/27 профили");
+    expect(rows.find((row) => row.key === "d113-ud-28-27")?.label).toBe("UD 28/27 профили");
+  });
+
+  it("keeps the system prefix from material labels when rooms use mixed systems", () => {
+    const rows = buildMaterialTakeoff([
+      makeRoom({ systemType: "D113", loadClass: "0.30", c: 600, a: 900 }),
+      makeRoom({ systemType: "D116", loadClass: "0.30", c: 600, a: 1050 }),
+    ], { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+
+    expect(rows.find((row) => row.key === "d113-cd-60-27")?.label).toBe("D113 CD 60/27 профили");
+    expect(rows.find((row) => row.key === "d116-ua-50-40")?.label).toBe("D116 UA 50/40 носещи профили");
   });
 
   it("adds board, joint and finish material rows to the takeoff", () => {
