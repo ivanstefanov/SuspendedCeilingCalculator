@@ -2,6 +2,8 @@ import { ChangeEvent, ReactNode, useState } from "react";
 import {
   CalcResult,
   CalculatorConstants,
+  CutBar,
+  CutOptimizationResult,
   CONSTRUCTION_TYPES,
   CUSTOM_PROFILE_OPTIONS,
   CustomProfileType,
@@ -19,8 +21,10 @@ import {
   Room,
   SystemType,
   applyAutoABC,
+  buildCutOptimizationInput,
+  buildLinearPositions,
   buildMaterialTakeoff,
-  buildPositions,
+  buildSuspendedCeilingLayout,
   calc,
   createRoom,
   getConstruction,
@@ -38,6 +42,7 @@ import {
   getUdAnchoringRule,
   getValidCValues,
   getValidationWarnings,
+  optimizeSuspendedCeilingCuts,
   estimateLoadKgPerM2,
   syncSpacingFromKnaufTable,
   validateCombination,
@@ -55,6 +60,9 @@ interface AppState {
 }
 
 type MaterialPrices = Record<string, number>;
+type CutPlanState = { plan: CutOptimizationResult; error: null } | { plan: null; error: string };
+type AppSection = "room" | "settings" | "materials" | "help";
+type RoomWorkspacePanel = "visual" | "cut";
 
 interface CatalogPriceEstimate {
   price: number;
@@ -201,7 +209,6 @@ function recalculateRoomWithCurrentLogic(source: Room, constants: CalculatorCons
     a: room.a,
     b: room.b,
     c: room.c,
-    offset: room.offset,
     udAnchorSpacing: room.udAnchorSpacing,
   };
 
@@ -210,7 +217,6 @@ function recalculateRoomWithCurrentLogic(source: Room, constants: CalculatorCons
   syncSpacingFromKnaufTable(room, { keepC: room.overrides.c });
 
   const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType, room.systemType, room.d116Variant, room.d112Variant);
-  if (!room.overrides.offset) room.offset = auto.offset;
   if (!room.overrides.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
   if (!room.overrides.area && room.width && room.length) room.area = (room.width * room.length) / 10000;
 
@@ -218,7 +224,6 @@ function recalculateRoomWithCurrentLogic(source: Room, constants: CalculatorCons
   if (room.overrides.a) room.a = manual.a;
   if (room.overrides.b) room.b = manual.b;
   if (room.overrides.c) room.c = manual.c;
-  if (room.overrides.offset) room.offset = manual.offset;
   if (room.overrides.udAnchorSpacing) room.udAnchorSpacing = manual.udAnchorSpacing;
 
   calc(room, constants);
@@ -275,10 +280,32 @@ async function fetchOnlinePrice(source: CatalogPriceSource): Promise<number | nu
   }
 }
 
+function buildSafeCutPlan(room: Room, result: CalcResult, constants: CalculatorConstants): CutPlanState {
+  try {
+    return {
+      plan: optimizeSuspendedCeilingCuts(buildCutOptimizationInput(room, result, constants), {
+        stockLengthCm: Math.max(constants.cdLength, constants.udLength) * 100,
+        kerfCm: 0.3,
+        minReusableOffcutCm: 20,
+        perTypeStockLengthsCm: {
+          carrier: constants.cdLength * 100,
+          mounting: constants.cdLength * 100,
+          ud: constants.udLength * 100,
+        },
+      }),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      plan: null,
+      error: error instanceof Error ? error.message : "Неуспешен разкрой.",
+    };
+  }
+}
+
 const CUSTOM_A_OPTIONS = buildRange(100, 3000, 50);
 const CUSTOM_B_OPTIONS = buildRange(100, 1250, 25);
 const CUSTOM_C_OPTIONS = buildRange(100, 3000, 50);
-const CUSTOM_OFFSET_OPTIONS = buildRange(0, 100, 5);
 const CUSTOM_UD_ANCHOR_OPTIONS = buildRange(100, 1500, 25);
 
 function buildRange(min: number, max: number, step: number): number[] {
@@ -290,7 +317,7 @@ function buildRange(min: number, max: number, step: number): number[] {
 function buildCalculationFormulas(room: Room, result: CalcResult, constants: CalculatorConstants) {
   const X = Number(room.width);
   const Y = Number(room.length);
-  const offset = Number(room.offset);
+  const offset = Number(constants.profileEdgeOffsetCm);
   const boardLayers = getEffectiveBoardLayers(room, constants);
   return [
     {
@@ -384,13 +411,12 @@ function buildCalculationFormulas(room: Room, result: CalcResult, constants: Cal
   ];
 }
 
-function syncDistanceOverride(room: Room, key: "a" | "b" | "c" | "offset" | "udAnchorSpacing"): void {
+function syncDistanceOverride(room: Room, key: "a" | "b" | "c" | "udAnchorSpacing"): void {
   const auto = getAutoABC(room.loadClass, room.fireProtection, room.boardType, room.systemType, room.d116Variant, room.d112Variant);
   const expected = {
     a: getTableValue(room) ?? auto.a,
     b: room.boardType === "custom" ? Number.NaN : auto.b,
     c: auto.c,
-    offset: auto.offset,
     udAnchorSpacing: auto.udAnchorSpacing,
   }[key];
 
@@ -401,10 +427,12 @@ function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const [zoom, setZoom] = useState(1);
   const [saveStatus, setSaveStatus] = useState("");
-  const [priceSearchStatus, setPriceSearchStatus] = useState("");
+  const [activeSection, setActiveSection] = useState<AppSection>("room");
+  const [roomWorkspacePanel, setRoomWorkspacePanel] = useState<RoomWorkspacePanel>("visual");
 
   const activeRoom = state.draftRoom;
   const activeResult = calc(activeRoom, state.constants);
+  const activeCutPlan = buildSafeCutPlan(activeRoom, activeResult, state.constants);
   const activeWarnings = getValidationWarnings(cloneRoom(activeRoom));
   const isValid = !activeWarnings.some((warning) => warning.severity === "error");
 
@@ -501,7 +529,6 @@ function App() {
       room.overrides.a = false;
       room.overrides.b = false;
       room.overrides.c = false;
-      room.overrides.offset = false;
       room.overrides.udAnchorSpacing = false;
       syncSpacingFromKnaufTable(room, { keepC: false });
       if (systemType === "CUSTOM") {
@@ -513,7 +540,6 @@ function App() {
         room.overrides.a = true;
         room.overrides.b = true;
         room.overrides.c = true;
-        room.overrides.offset = true;
         room.overrides.udAnchorSpacing = true;
       }
     });
@@ -524,7 +550,6 @@ function App() {
       room.overrides.a = false;
       room.overrides.b = false;
       room.overrides.c = false;
-      room.overrides.offset = false;
       room.overrides.udAnchorSpacing = false;
       syncSpacingFromKnaufTable(room, { keepC: false });
     });
@@ -546,6 +571,14 @@ function App() {
   function exportActiveCalculation(): void {
     const room = cloneRoom(activeRoom);
     const result = calc(room, state.constants);
+    const layout = buildSuspendedCeilingLayout({
+      roomWidthCm: result.W,
+      roomLengthCm: result.L,
+      profileLengthCm: state.constants.cdLength * 100,
+      carrierRowSpacingCm: room.c / 10,
+      hangerSpacingCm: room.a / 10,
+      firstHangerOffsetCm: state.constants.profileEdgeOffsetCm,
+    });
     const payload = {
       exportedAt: new Date().toISOString(),
       scope: "active-room-calculation",
@@ -558,6 +591,7 @@ function App() {
       },
       result,
       formulas: buildCalculationFormulas(room, result, state.constants),
+      cutPlan: buildSafeCutPlan(room, result, state.constants),
       pricing: {
         currency: "EUR",
         materials: buildMaterialTakeoff([room], state.constants).map((row) => ({
@@ -567,13 +601,10 @@ function App() {
         })),
       },
       positions: {
-        bearingProfilesCm: buildPositions(result.W, room.c, room.offset),
-        mountingProfilesCm: buildPositions(result.L, room.b, room.offset),
-        hangersCm: buildPositions(result.L, room.a, room.offset),
-        extensionsCm: Array.from(
-          { length: Math.max(0, Math.ceil(result.L / (state.constants.cdLength * 100)) - 1) },
-          (_, index) => (index + 1) * state.constants.cdLength * 100,
-        ),
+        bearingProfilesCm: layout.carrierRowsYcm,
+        mountingProfilesCm: buildLinearPositions(result.L, room.b / 10, state.constants.profileEdgeOffsetCm),
+        hangersCm: layout.hangerPositionsCm,
+        bearingExtensionsCmByRow: layout.carrierExtensions,
       },
       materials: buildMaterialTakeoff([room], state.constants),
     };
@@ -690,38 +721,13 @@ function App() {
     URL.revokeObjectURL(link.href);
   }
 
-  async function searchOnlinePrices(): Promise<void> {
-    const rows = buildMaterialTakeoff(state.rooms, state.constants)
-      .filter((row) => getMaterialUnitPrice(state.materialPrices, row.key) === 0);
-    setPriceSearchStatus("Търся цени...");
-
-    const foundPrices: MaterialPrices = {};
-    for (const row of rows) {
-      const product = getCatalogProductForMaterial(row.label, row.key);
-      if (!product) continue;
-
-      for (const source of product.priceSources) {
-        const price = await fetchOnlinePrice(source);
-        if (price == null) continue;
-        foundPrices[row.key] = price;
-        break;
-      }
-    }
-
-    if (Object.keys(foundPrices).length) {
-      commit((draft) => {
-        Object.entries(foundPrices).forEach(([key, price]) => {
-          if (getMaterialUnitPrice(draft.materialPrices, key) === 0) draft.materialPrices[key] = price;
-        });
-      });
-      setPriceSearchStatus(`Намерени цени: ${Object.keys(foundPrices).length}`);
-    } else {
-      setPriceSearchStatus("Няма намерени нови цени");
-    }
-    window.setTimeout(() => setPriceSearchStatus(""), 2400);
-  }
-
   const loadClasses = getLoadClasses(activeRoom.systemType, activeRoom.fireProtection, activeRoom.d116Variant, activeRoom.d112Variant);
+  const menuItems: Array<{ key: AppSection; label: string }> = [
+    { key: "room", label: "Стаи" },
+    { key: "settings", label: "Глобални настройки" },
+    { key: "materials", label: "Общо Материали" },
+    { key: "help", label: "Help" },
+  ];
 
   return (
     <main className="app-shell">
@@ -732,7 +738,16 @@ function App() {
             <h1>Калкулатор за окачени тавани</h1>
           </div>
           <div className="topbar-actions">
-            <button type="button" onClick={addRoom}>Нова стая</button>
+            {menuItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={activeSection === item.key ? "menu-button active" : "menu-button"}
+                onClick={() => setActiveSection(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
             <button type="button" className="ghost" onClick={exportJson}>Експорт JSON</button>
             <button type="button" className="ghost" onClick={exportActiveCalculation}>Експорт изчисление</button>
             <button type="button" className="ghost" onClick={exportExcel}>Експорт Excel</button>
@@ -740,73 +755,282 @@ function App() {
           </div>
         </div>
 
-        <div className="workspace-grid">
-          <aside className="side-rail">
-            <RoomEditor
-              room={activeRoom}
-              loadClasses={loadClasses}
-              isValid={isValid}
-              warnings={activeWarnings}
-              onSystemChange={changeSystem}
-              onResetAuto={resetAutoSpacing}
-              onSave={saveCurrentState}
-              saveStatus={saveStatus}
-              onRoomChange={updateActiveRoom}
-            />
-          </aside>
+        {activeSection === "room" && (
+          <section className="section-stack">
+            <div className="workspace-grid">
+              <aside className="side-rail">
+                <RoomEditor
+                  room={activeRoom}
+                  loadClasses={loadClasses}
+                  isValid={isValid}
+                  warnings={activeWarnings}
+                  onSystemChange={changeSystem}
+                  onResetAuto={resetAutoSpacing}
+                  onSave={saveCurrentState}
+                  saveStatus={saveStatus}
+                  onAddRoom={() => {
+                    addRoom();
+                    setActiveSection("room");
+                    setRoomWorkspacePanel("visual");
+                  }}
+                  onRoomChange={updateActiveRoom}
+                />
+              </aside>
 
-          <section className="visual-workspace">
-            <ResultCards result={activeResult} room={activeRoom} />
-            <Visualization
-              room={activeRoom}
-              result={activeResult}
-              zoom={zoom}
-              onZoomChange={setZoom}
+              <section className="visual-workspace">
+                <ResultCards result={activeResult} room={activeRoom} />
+                {roomWorkspacePanel === "visual" ? (
+                  <Visualization
+                    room={activeRoom}
+                    result={activeResult}
+                    constants={state.constants}
+                    zoom={zoom}
+                    onZoomChange={setZoom}
+                    onOpenCutOptimization={() => setRoomWorkspacePanel("cut")}
+                  />
+                ) : (
+                  <CutOptimizationPanel
+                    room={activeRoom}
+                    result={activeResult}
+                    cutPlan={activeCutPlan}
+                    constants={state.constants}
+                    onBackToVisualization={() => setRoomWorkspacePanel("visual")}
+                  />
+                )}
+              </section>
+            </div>
+
+            <RoomsTable
+              rooms={state.rooms}
+              constants={state.constants}
+              activeRoomId={state.activeRoomId}
+              onAddRoom={() => {
+                addRoom();
+                setActiveSection("room");
+                setRoomWorkspacePanel("visual");
+              }}
+              onSelect={(roomId) => commit((draft) => {
+                const room = draft.rooms.find((item) => item.id === roomId);
+                if (!room) return;
+                draft.draftRoom = cloneRoom(room);
+                draft.activeRoomId = room.id;
+                setActiveSection("room");
+                setRoomWorkspacePanel("visual");
+              })}
+              onDelete={deleteRoom}
+              onDeleteAll={deleteAllRooms}
+              onRecalculate={recalculateSavedRooms}
             />
           </section>
-        </div>
+        )}
 
-        <ConstantsEditor
-          constants={state.constants}
-          onChange={(patch) => commit((draft) => { draft.constants = { ...draft.constants, ...patch }; })}
-        />
-      </section>
+        {activeSection === "settings" && (
+          <ConstantsEditor
+            constants={state.constants}
+            onChange={(patch) => commit((draft) => { draft.constants = { ...draft.constants, ...patch }; })}
+          />
+        )}
 
-      <section className="results-section">
-        <RoomsTable
-          rooms={state.rooms}
-          constants={state.constants}
-          activeRoomId={state.activeRoomId}
-          onSelect={(roomId) => commit((draft) => {
-            const room = draft.rooms.find((item) => item.id === roomId);
-            if (!room) return;
-            draft.draftRoom = cloneRoom(room);
-            draft.activeRoomId = room.id;
-          })}
-          onDelete={deleteRoom}
-          onDeleteAll={deleteAllRooms}
-          onRecalculate={recalculateSavedRooms}
-        />
-        <MaterialsPanel
-          rooms={state.rooms}
-          constants={state.constants}
-          prices={state.materialPrices}
-          onReserveChange={(wastePercent) => commit((draft) => { draft.constants.wastePercent = wastePercent; })}
-          onPriceChange={(key, price) => commit((draft) => { draft.materialPrices[key] = price; })}
-          onSearchOnlinePrices={searchOnlinePrices}
-          onExportExcel={exportMaterialsExcel}
-          priceSearchStatus={priceSearchStatus}
-          onAutofillPrices={() => commit((draft) => {
-            buildMaterialTakeoff(draft.rooms, draft.constants).forEach((row) => {
-              if (getMaterialUnitPrice(draft.materialPrices, row.key) > 0) return;
-              const estimate = getEstimatedMaterialPrice(row.label, row.key);
-              if (estimate && estimate.price > 0) draft.materialPrices[row.key] = estimate.price;
-            });
-          })}
-        />
+        {activeSection === "materials" && (
+          <MaterialsPanel
+            rooms={state.rooms}
+            constants={state.constants}
+            prices={state.materialPrices}
+            onReserveChange={(wastePercent) => commit((draft) => { draft.constants.wastePercent = wastePercent; })}
+            onPriceChange={(key, price) => commit((draft) => { draft.materialPrices[key] = price; })}
+            onExportExcel={exportMaterialsExcel}
+          />
+        )}
+
+        {activeSection === "help" && <HelpPanel />}
       </section>
-      <HelpPanel />
     </main>
+  );
+}
+
+function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisualization }: {
+  room: Room;
+  result: CalcResult;
+  cutPlan: CutPlanState;
+  constants: CalculatorConstants;
+  onBackToVisualization?: () => void;
+}) {
+  if (cutPlan.error || !cutPlan.plan) {
+    return (
+      <section className="panel cut-plan-panel">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Оптимизация на разкроя</p>
+            <h2>Разкрой за {room.name}</h2>
+          </div>
+          {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
+        </div>
+        <div className="validation-item error">
+          Разкроят не може да се изчисли с текущия layout и зададените дължини на профилите.
+          {" "}
+          {cutPlan.error}
+        </div>
+      </section>
+    );
+  }
+
+  const plan = cutPlan.plan;
+  const currentProfiles = result.cdTotalProfiles + result.udProfiles;
+  const savedBars = Math.max(0, currentProfiles - plan.totalBars);
+  const savedPercent = currentProfiles > 0
+    ? Number(((savedBars / currentProfiles) * 100).toFixed(2))
+    : 0;
+  const totalPurchasedLengthCm = plan.bars.reduce((sum, bar) => sum + bar.stockLengthCm, 0);
+  const stockLengthCm = plan.bars[0]?.stockLengthCm ?? Math.max(constants.cdLength, constants.udLength) * 100;
+  const summaryText = savedBars > 0
+    ? `С този разкрой за ${room.name} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., защото парчетата от носещи CD, монтажни CD и UD се комбинират по-ефективно в едни и същи пръти.`
+    : `За ${room.name} този разкрой не намалява броя нужни профили спрямо простото броене ${currentProfiles} бр., но подрежда парчетата в реален план за рязане и показва точно какъв остатък остава след разкроя.`;
+
+  return (
+    <section className="panel cut-plan-panel">
+      <div className="panel-title">
+        <div>
+          <p className="eyebrow">Оптимизация на разкроя</p>
+          <h2>Разкрой за {room.name}</h2>
+        </div>
+        {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
+        <div className="cut-plan-summary-chip">
+          <strong>{plan.totalBars} профила</strong>
+          <small>стандартен прът {formatNumber(stockLengthCm)} cm, срез {0.3} cm, остатък над {20} cm се счита за използваем</small>
+        </div>
+      </div>
+
+      <div className="cut-plan-metrics">
+        <div className="cut-metric">
+          <span>Общо профили</span>
+          <strong>{plan.totalBars}</strong>
+          <small>Това е колко стандартни пръта трябва да купиш за този разкрой.</small>
+          <small>Сравнение с текущото просто броене: {currentProfiles} профила.</small>
+        </div>
+        <div className="cut-metric">
+          <span>Отпадък</span>
+          <strong>{formatNumber(plan.totalWasteCm)} cm</strong>
+          <small>Това е общият неизползван материал след разкроя на всички закупени пръти.</small>
+          <small>{formatNumber(100 - plan.efficiencyPercent)} % от общо закупената дължина остава неизползвана.</small>
+        </div>
+        <div className="cut-metric">
+          <span>Ефективност</span>
+          <strong>{formatNumber(plan.efficiencyPercent)} %</strong>
+          <small>Показва колко добре използваш общата дължина на закупените пръти.</small>
+          <small>Теоретичен минимум: {plan.lowerBoundBars} профила при идеален разкрой без практически ограничения.</small>
+        </div>
+      </div>
+
+      <div className="cut-plan-type-grid">
+        <TypeStatCard label="Носещи CD" stats={plan.carrierStats} />
+        <TypeStatCard label="Монтажни CD" stats={plan.mountingStats} />
+        <TypeStatCard label="UD" stats={plan.udStats} />
+      </div>
+
+      <div className="cut-plan-summary-note">
+        <strong>Обобщение за стаята</strong>
+        <p>{summaryText}</p>
+        <small>
+          Общата закупена дължина тук е {formatNumber(totalPurchasedLengthCm)} cm, от които {formatNumber(plan.totalUsedCm)} cm
+          {" "}се използват, а {formatNumber(plan.totalWasteCm)} cm остават като остатък.
+        </small>
+      </div>
+
+      <div className="cut-plan-legend">
+        <div className="cut-plan-legend-head">
+          <h3>Легенда</h3>
+          <small>Оцветяването показва вида на всяко парче в пръта</small>
+        </div>
+        <div className="cut-plan-legend-grid">
+          <LegendItem type="carrier" label="Носещ CD профил" />
+          <LegendItem type="mounting" label="Монтажен CD профил" />
+          <LegendItem type="ud" label="UD периферен профил" />
+          <LegendItem type="waste" label="Остатък / отпадък" />
+        </div>
+      </div>
+
+      <div className="cut-bar-groups">
+        <CutBarGroup title="Разкрой по пръти" bars={plan.bars} />
+      </div>
+    </section>
+  );
+}
+
+function getCutPieceLabel(type: CutBar["type"] | "waste"): string {
+  if (type === "carrier") return "носещ CD";
+  if (type === "mounting") return "монтажен CD";
+  if (type === "ud") return "UD";
+  if (type === "mixed") return "смесен прът";
+  return "остатък";
+}
+
+function TypeStatCard({ label, stats }: { label: string; stats: CutOptimizationResult["carrierStats"] }) {
+  return (
+    <div className="cut-type-card">
+      <span>{label}</span>
+      <strong>{formatNumber(stats.totalUsedCm)} cm</strong>
+      <small>Това е общата използвана дължина от този вид профил в разкроя.</small>
+      <small>Участва в {stats.totalBars} пръта; разпределен остатък {formatNumber(stats.totalWasteCm)} cm.</small>
+      <em>Ефективност за този тип: {formatNumber(stats.efficiencyPercent)} %.</em>
+    </div>
+  );
+}
+
+function LegendItem({ type, label }: { type: "carrier" | "mounting" | "ud" | "waste"; label: string }) {
+  return (
+    <div className="cut-legend-item">
+      <span className={`cut-legend-swatch ${type}`} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function CutBarGroup({ title, bars }: { title: string; bars: CutBar[] }) {
+  if (!bars.length) return null;
+  return (
+    <section className="cut-bar-group">
+      <div className="cut-bar-group-head">
+        <h3>{title}</h3>
+        <small>{bars.length} пръта</small>
+      </div>
+      <div className="cut-bar-list">
+        {bars.map((bar) => <CutBarStrip key={bar.id} bar={bar} />)}
+      </div>
+    </section>
+  );
+}
+
+function CutBarStrip({ bar }: { bar: CutBar }) {
+  const barLabel = getCutPieceLabel(bar.type);
+  return (
+    <div className="cut-bar-card">
+      <div className="cut-bar-head">
+        <strong>{bar.id}</strong>
+        <span>{barLabel}</span>
+        <small>използвани {formatNumber(bar.usedCm)} / {formatNumber(bar.stockLengthCm)} cm</small>
+      </div>
+      <div className="cut-strip">
+        {bar.segments.map((segment) => (
+          <div
+            key={segment.pieceId}
+            className={`cut-piece ${segment.type}`}
+            style={{ width: `${(segment.lengthCm / bar.stockLengthCm) * 100}%` }}
+            title={`${getCutPieceLabel(segment.type)}: ${segment.lengthCm} cm`}
+          >
+            {Math.round(segment.lengthCm)}
+          </div>
+        ))}
+        {bar.wasteCm > 0 && (
+          <div
+            className="cut-piece waste"
+            style={{ width: `${(bar.wasteCm / bar.stockLengthCm) * 100}%` }}
+            title={`Отпадък ${bar.wasteCm} cm`}
+          >
+            {Math.round(bar.wasteCm)}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -819,10 +1043,11 @@ interface RoomEditorProps {
   onResetAuto: () => void;
   onSave: () => void;
   saveStatus: string;
+  onAddRoom: () => void;
   onRoomChange: (updater: (room: Room) => void) => void;
 }
 
-function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onResetAuto, onSave, saveStatus, onRoomChange }: RoomEditorProps) {
+function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onResetAuto, onSave, saveStatus, onAddRoom, onRoomChange }: RoomEditorProps) {
   const construction = CONSTRUCTION_TYPES[room.systemType];
   const d112Variant = room.d112Variant ?? "double_cd";
   const d116Variant = room.d116Variant ?? "ua_cd";
@@ -855,6 +1080,7 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           <h2>{room.name}</h2>
         </div>
         <div className="room-actions">
+          <button type="button" className="ghost small" onClick={onAddRoom}>Нова стая</button>
           {saveStatus && <span className="save-status">{saveStatus}</span>}
           <span className={isValid && !warningCount ? "status ok" : "status warn"}>{statusLabel}</span>
           <button type="button" className="small" onClick={onSave}>Save</button>
@@ -1068,27 +1294,15 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           </>
         )}
         {isCustom ? (
-          <>
-            <SelectNumberField label="Начално отстояние (cm)" value={room.offset} manual={room.overrides.offset} options={CUSTOM_OFFSET_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-              draft.offset = value;
-              syncDistanceOverride(draft, "offset");
-            })} />
-            <SelectNumberField label={`Дюбели периферия (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} options={CUSTOM_UD_ANCHOR_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-              draft.udAnchorSpacing = value;
-              syncDistanceOverride(draft, "udAnchorSpacing");
-            })} />
-          </>
+          <SelectNumberField label={`Дюбели периферия (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} options={CUSTOM_UD_ANCHOR_OPTIONS} onChange={(value) => onRoomChange((draft) => {
+            draft.udAnchorSpacing = value;
+            syncDistanceOverride(draft, "udAnchorSpacing");
+          })} />
         ) : (
-          <>
-            <NumberField label="Начално отстояние (cm)" value={room.offset} manual={room.overrides.offset} onChange={(value) => onRoomChange((draft) => {
-              draft.offset = value;
-              syncDistanceOverride(draft, "offset");
-            })} />
-            <NumberField label={`UD дюбели (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} onChange={(value) => onRoomChange((draft) => {
-              draft.udAnchorSpacing = value;
-              syncDistanceOverride(draft, "udAnchorSpacing");
-            })} />
-          </>
+          <NumberField label={`UD дюбели (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} onChange={(value) => onRoomChange((draft) => {
+            draft.udAnchorSpacing = value;
+            syncDistanceOverride(draft, "udAnchorSpacing");
+          })} />
         )}
       </div>
       <p className="hint">{variantHint}</p>
@@ -1166,6 +1380,7 @@ function ConstantsEditor({ constants, onChange }: { constants: CalculatorConstan
           <NumberInput label="UD профил (m)" value={constants.udLength} step={0.1} onChange={(value) => onChange({ udLength: value })} />
           <NumberInput label="UA профил (m)" value={constants.uaLength} step={0.1} onChange={(value) => onChange({ uaLength: value })} />
           <NumberInput label="Дървена летва (m)" value={constants.woodBattenLength} step={0.1} onChange={(value) => onChange({ woodBattenLength: value })} />
+          <NumberInput label="Първи профил от стена (cm)" value={constants.profileEdgeOffsetCm} step={1} onChange={(value) => onChange({ profileEdgeOffsetCm: Math.max(0, value) })} />
         </SettingsGroup>
 
         <SettingsGroup title="Крепежи" note="Норми за винтове. Дюбелите за UD и окачвачи се изчисляват отделно по геометрията.">
@@ -1248,10 +1463,27 @@ function Metric({ label, value, suffix, note }: { label: string; value: number; 
   );
 }
 
-function Visualization({ room, result, zoom, onZoomChange }: { room: Room; result: CalcResult; zoom: number; onZoomChange: (zoom: number) => void }) {
-  const bearingPositions = buildPositions(result.W, room.c, room.offset);
-  const mountingPositions = buildPositions(result.L, room.b, room.offset);
-  const hangerPositions = buildPositions(result.L, room.a, room.offset);
+function Visualization({ room, result, constants, zoom, onZoomChange, onOpenCutOptimization }: {
+  room: Room;
+  result: CalcResult;
+  constants: CalculatorConstants;
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
+  onOpenCutOptimization: () => void;
+}) {
+  const layout = buildSuspendedCeilingLayout({
+    roomWidthCm: result.W,
+    roomLengthCm: result.L,
+    profileLengthCm: constants.cdLength * 100,
+    carrierRowSpacingCm: room.c / 10,
+    hangerSpacingCm: room.a / 10,
+    firstHangerOffsetCm: constants.profileEdgeOffsetCm,
+  });
+  const bearingPositions = layout.carrierRowsYcm;
+  const mountingPositions = buildLinearPositions(result.L, room.b / 10, constants.profileEdgeOffsetCm);
+  const hangerPositions = layout.hangerPositionsCm;
+  const extensionLayout = layout.carrierExtensions;
+  const extensionPositions = Array.from(new Set(extensionLayout.flatMap((line) => line.pointsCm))).sort((left, right) => left - right);
   const width = 980;
   const height = 560;
   const pad = 86;
@@ -1259,9 +1491,6 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
   const gridH = height - pad * 2;
   const xScale = gridW / result.L;
   const yScale = gridH / result.W;
-  const segmentLengthCm = 100 * 4;
-  const extensionPoints: number[] = [];
-  for (let pos = segmentLengthCm; pos < result.L; pos += segmentLengthCm) extensionPoints.push(pos);
 
   return (
     <section className="visual-panel">
@@ -1271,6 +1500,7 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
           <h2>{room.name} - {room.systemType}</h2>
         </div>
         <div className="zoom-group">
+          <button type="button" className="workspace-toggle-button" onClick={onOpenCutOptimization}>Оптимизация на разкроя</button>
           <button type="button" className="ghost small" onClick={() => onZoomChange(Math.max(0.7, zoom - 0.1))}>-</button>
           <span>{Math.round(zoom * 100)}%</span>
           <button type="button" className="ghost small" onClick={() => onZoomChange(Math.min(1.8, zoom + 0.1))}>+</button>
@@ -1301,8 +1531,7 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
               </g>
             );
           })}
-
-          {extensionPoints.map((extension, index) => {
+          {extensionPositions.map((extension, index) => {
             const x = pad + extension * xScale;
             const y1 = pad + gridH;
             const y2 = pad + gridH + 24;
@@ -1314,7 +1543,6 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
               </g>
             );
           })}
-
           {mountingPositions.map((position) => {
             const x = pad + position * xScale;
             return (
@@ -1325,8 +1553,9 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
             );
           })}
 
-          {bearingPositions.map((position) => {
+          {bearingPositions.map((position, lineIndex) => {
             const y = pad + position * yScale;
+            const lineExtensions = extensionLayout.find((line) => line.lineIndex === lineIndex)?.pointsCm ?? [];
             return (
               <g key={`bearing-${position}`}>
                 <line x1={pad} y1={y} x2={pad + gridW} y2={y} className="bearing-line" />
@@ -1339,7 +1568,7 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
                     </g>
                   );
                 })}
-                {extensionPoints.map((extension) => (
+                {lineExtensions.map((extension) => (
                   <line key={`extension-${position}-${extension}`} x1={pad + extension * xScale} y1={y - 12} x2={pad + extension * xScale} y2={y + 12} className="extension-mark" />
                 ))}
               </g>
@@ -1357,10 +1586,11 @@ function Visualization({ room, result, zoom, onZoomChange }: { room: Room; resul
   );
 }
 
-function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDeleteAll, onRecalculate }: {
+function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDelete, onDeleteAll, onRecalculate }: {
   rooms: Room[];
   constants: CalculatorConstants;
   activeRoomId: string;
+  onAddRoom: () => void;
   onSelect: (roomId: string) => void;
   onDelete: (roomId: string) => void;
   onDeleteAll: () => void;
@@ -1418,15 +1648,12 @@ function RoomsTable({ rooms, constants, activeRoomId, onSelect, onDelete, onDele
   );
 }
 
-function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserveChange, onPriceChange, onSearchOnlinePrices, onAutofillPrices, onExportExcel }: {
+function MaterialsPanel({ rooms, constants, prices, onReserveChange, onPriceChange, onExportExcel }: {
   rooms: Room[];
   constants: CalculatorConstants;
   prices: MaterialPrices;
-  priceSearchStatus: string;
   onReserveChange: (wastePercent: number) => void;
   onPriceChange: (key: string, price: number) => void;
-  onSearchOnlinePrices: () => void;
-  onAutofillPrices: () => void;
   onExportExcel: () => void;
 }) {
   const rows = buildMaterialTakeoff(rooms, constants);
@@ -1454,10 +1681,7 @@ function MaterialsPanel({ rooms, constants, prices, priceSearchStatus, onReserve
         <small>по въведените единични цени в евро, с включен резерв в количествата</small>
         <div className="price-actions">
           <button type="button" className="ghost small" disabled={!rows.length} onClick={onExportExcel}>Експорт</button>
-          <button type="button" className="ghost small" onClick={onSearchOnlinePrices}>Потърси цени</button>
-          <button type="button" className="ghost small" onClick={onAutofillPrices}>Попълни ориентири</button>
         </div>
-        {priceSearchStatus && <em>{priceSearchStatus}</em>}
       </div>
       <div className="material-list">
         {rows.map((row) => {

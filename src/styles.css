@@ -132,8 +132,9 @@ h3 {
 }
 
 .app-shell {
-  width: min(1800px, 100%);
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 0.6rem;
 }
 
@@ -141,6 +142,26 @@ h3 {
 .results-section {
   display: grid;
   gap: 0.65rem;
+}
+
+.section-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.workspace-toggle-button {
+  min-height: 38px;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.18);
+}
+
+.workspace-toggle-button:hover {
+  background: var(--primary-strong);
 }
 
 .topbar {
@@ -166,6 +187,23 @@ h3 {
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+.menu-button {
+  background: #f7faf8;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.menu-button:hover {
+  background: #edf8f5;
+  border-color: var(--primary);
+}
+
+.menu-button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: transparent;
 }
 
 .workspace-grid {
@@ -686,6 +724,205 @@ h3 {
 .results-section {
   grid-template-columns: minmax(0, 1.6fr) minmax(360px, 0.7fr);
   margin-top: 0.65rem;
+}
+
+.cut-plan-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.cut-plan-summary-chip {
+  display: grid;
+  gap: 0.15rem;
+  justify-items: end;
+  text-align: right;
+}
+
+.cut-plan-summary-chip small,
+.cut-bar-head small,
+.cut-bar-group-head small,
+.cut-metric small,
+.cut-type-card small,
+.cut-type-card em {
+  color: var(--muted);
+}
+
+.cut-plan-metrics,
+.cut-plan-type-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.cut-plan-legend {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, white);
+}
+
+.cut-plan-summary-note {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper) 92%, #eef7f0);
+}
+
+.cut-plan-summary-note strong,
+.cut-plan-summary-note p,
+.cut-plan-summary-note small {
+  margin: 0;
+}
+
+.cut-plan-legend-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.cut-plan-legend-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.cut-plan-legend-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+}
+
+.cut-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.cut-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  flex: 0 0 auto;
+}
+
+.cut-legend-swatch.carrier {
+  background: #2563eb;
+}
+
+.cut-legend-swatch.mounting {
+  background: #1b9a63;
+}
+
+.cut-legend-swatch.ud {
+  background: #667085;
+}
+
+.cut-legend-swatch.waste {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      #f9caca 0,
+      #f9caca 6px,
+      #fff1f1 6px,
+      #fff1f1 12px
+    );
+}
+
+.cut-metric,
+.cut-type-card {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.65rem;
+  background: var(--paper);
+}
+
+.cut-metric strong,
+.cut-type-card strong {
+  font-size: 1.05rem;
+}
+
+.cut-bar-groups,
+.cut-bar-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.cut-bar-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.cut-bar-group-head,
+.cut-bar-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.cut-bar-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cut-strip {
+  display: flex;
+  min-height: 36px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f1f4f2;
+  border: 1px solid var(--line);
+}
+
+.cut-piece {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  border-right: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.cut-piece.carrier {
+  background: #2563eb;
+}
+
+.cut-piece.mounting {
+  background: #1b9a63;
+}
+
+.cut-piece.ud {
+  background: #667085;
+}
+
+.cut-piece.waste {
+  color: #7a1f1f;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(217, 79, 61, 0.18) 0,
+      rgba(217, 79, 61, 0.18) 8px,
+      rgba(255, 255, 255, 0.72) 8px,
+      rgba(255, 255, 255, 0.72) 16px
+    );
+  border-right: 0;
 }
 
 .table-scroll {

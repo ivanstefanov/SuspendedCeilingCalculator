@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMaterialTakeoff, buildPositions, calc, DEFAULT_CONSTANTS, estimateLoadKgPerM2, getAllowedAValues, getAllowedBValues, getAutoABC, getAutomaticLoadClass, getBoardOptions, getEffectiveBoardLayers, getFireCertificationCheck, getHangerOptions, getTableValue, getUdAnchoringRule, getValidationWarnings, Room, validateCombination } from "./calculator";
+import { buildCutOptimizationInput, buildLayoutHangerPositions, buildLinearPositions, buildMaterialTakeoff, buildPositions, buildStaggeredExtensionLayout, buildSuspendedCeilingLayout, calc, DEFAULT_CONSTANTS, estimateLoadKgPerM2, getAllowedAValues, getAllowedBValues, getAutoABC, getAutomaticLoadClass, getBoardOptions, getEffectiveBoardLayers, getFireCertificationCheck, getHangerOptions, getTableValue, getUdAnchoringRule, getValidationWarnings, optimizeSuspendedCeilingCuts, Room, validateCombination } from "./calculator";
 
 function makeRoom(patch: Partial<Room> = {}): Room {
   return {
@@ -20,9 +20,8 @@ function makeRoom(patch: Partial<Room> = {}): Room {
     a: 700,
     b: 500,
     c: 800,
-    offset: 30,
     udAnchorSpacing: 625,
-    overrides: { area: false, a: true, b: true, c: true, offset: true, udAnchorSpacing: true },
+    overrides: { area: false, a: true, b: true, c: true, udAnchorSpacing: true },
     ...patch,
   };
 }
@@ -33,13 +32,13 @@ describe("calculator", () => {
     const result = calc(room, DEFAULT_CONSTANTS);
 
     expect(validateCombination(room)).toBe(true);
-    expect(result.bearingCount).toBe(13);
-    expect(result.mountingCount).toBe(20);
-    expect(result.crossConnectors).toBe(260);
+    expect(result.bearingCount).toBe(14);
+    expect(result.mountingCount).toBe(21);
+    expect(result.crossConnectors).toBe(294);
     expect(result.hangersPerBearing).toBe(15);
-    expect(result.hangersTotal).toBe(195);
-    expect(result.bearingLengthTotal).toBe(130);
-    expect(result.mountingLengthTotal).toBe(200);
+    expect(result.hangersTotal).toBe(210);
+    expect(result.bearingLengthTotal).toBe(140);
+    expect(result.mountingLengthTotal).toBe(210);
   });
 
   it.each([
@@ -65,10 +64,10 @@ describe("calculator", () => {
       c: 500,
     });
     const result = calc(room, DEFAULT_CONSTANTS);
-    const positions = buildPositions(result.W, room.c, room.offset).map(Math.round);
+    const positions = buildPositions(result.W, room.c, DEFAULT_CONSTANTS.profileEdgeOffsetCm).map(Math.round);
 
     expect(result.bearingCount).toBe(9);
-    expect(positions).toEqual([30, 75, 120, 165, 210, 255, 300, 345, 390]);
+    expect(positions).toEqual([10, 60, 110, 160, 210, 260, 310, 360, 410]);
   });
 
   it("places D113 profiles in a 200 x 200 cm room without exceeding selected spacing", () => {
@@ -81,27 +80,26 @@ describe("calculator", () => {
       a: 800,
       b: 500,
       c: 500,
-      offset: 30,
     });
     const result = calc(room, DEFAULT_CONSTANTS);
 
-    expect(result.bearingCount).toBe(4);
-    expect(result.mountingCount).toBe(4);
-    expect(result.hangersPerBearing).toBe(3);
-    expect(result.bearingProfiles).toBe(4);
-    expect(result.mountingProfiles).toBe(4);
-    expect(result.cdTotalProfiles).toBe(8);
+    expect(result.bearingCount).toBe(5);
+    expect(result.mountingCount).toBe(5);
+    expect(result.hangersPerBearing).toBe(4);
+    expect(result.bearingProfiles).toBe(5);
+    expect(result.mountingProfiles).toBe(5);
+    expect(result.cdTotalProfiles).toBe(10);
     expect(result.udProfiles).toBe(4);
     expect(result.anchorsUd).toBe(16);
-    expect(buildPositions(result.W, room.c, room.offset)).toEqual([30, 76.66666666666666, 123.33333333333333, 170]);
-    expect(buildPositions(result.L, room.a, room.offset)).toEqual([30, 100, 170]);
+    expect(buildPositions(result.W, room.c, DEFAULT_CONSTANTS.profileEdgeOffsetCm)).toEqual([10, 55, 100, 145, 190]);
+    expect(buildPositions(result.L, room.a, DEFAULT_CONSTANTS.profileEdgeOffsetCm)).toEqual([10, 70, 130, 190]);
   });
 
   it("redistributes short-room hanger positions while keeping Knauf maximum spacing", () => {
-    const positions = buildPositions(226, 800, 30);
+    const positions = buildPositions(226, 800, DEFAULT_CONSTANTS.profileEdgeOffsetCm);
     const gaps = positions.slice(1).map((position, index) => position - positions[index]);
 
-    expect(positions.map(Math.round)).toEqual([30, 85, 141, 196]);
+    expect(positions.map(Math.round)).toEqual([10, 79, 147, 216]);
     expect(Math.max(...gaps)).toBeLessThanOrEqual(80);
   });
 
@@ -137,12 +135,340 @@ describe("calculator", () => {
     expect(result.extensionsTotal).toBe(0);
   });
 
+  it("does not generate joints for a 200 cm row with 400 cm stock length", () => {
+    expect(buildStaggeredExtensionLayout(1, 200, 4, [10, 90, 170])).toEqual([{ lineIndex: 0, pointsCm: [] }]);
+  });
+
+  it("does not generate joints for a 400 cm row with 400 cm stock length", () => {
+    expect(buildStaggeredExtensionLayout(1, 400, 4, [10, 90, 170, 250, 330])).toEqual([{ lineIndex: 0, pointsCm: [] }]);
+  });
+
+  it("creates one balanced joint when the row is just over one stock length", () => {
+    const layout = buildStaggeredExtensionLayout(1, 401, 4, [10, 90, 170, 250, 330]);
+    const joint = layout[0]?.pointsCm[0] ?? 0;
+
+    expect(layout).toEqual([{ lineIndex: 0, pointsCm: [170] }]);
+    expect(joint).toBeGreaterThan(30);
+    expect(401 - joint).toBeGreaterThan(30);
+  });
+
+  it("uses the requested four-row stagger pattern for carrier profile joints", () => {
+    const hangers = [10, 90, 170, 250, 330, 410, 490, 570, 650, 730, 810, 890];
+    const layout = buildStaggeredExtensionLayout(4, 900, 4, hangers);
+
+    expect(layout.map((line) => line.pointsCm)).toEqual([
+      [400, 800],
+      [240, 640],
+      [320, 720],
+      [160, 560],
+    ]);
+  });
+
+  it("keeps the regular hanger grid when joints can snap to it", () => {
+    const layout = buildSuspendedCeilingLayout({
+      roomLengthCm: 900,
+      roomWidthCm: 200,
+      profileLengthCm: 400,
+      carrierRowSpacingCm: 50,
+      hangerSpacingCm: 80,
+      firstHangerOffsetCm: 10,
+      hangerNearJointMaxDistanceCm: 15,
+    });
+
+    expect(layout.hangerPositionsCm).toEqual([10, 90, 170, 250, 330, 410, 490, 570, 650, 730, 810, 890]);
+    expect(layout.carrierExtensions[0]?.pointsCm).toEqual([400, 800]);
+    expect(layout.carrierExtensions[1]?.pointsCm).toEqual([240, 640]);
+    expect(layout.carrierExtensions.flatMap((line) => line.pointsCm).every((joint) => (
+      layout.hangerPositionsCm.some((hanger) => Math.abs(hanger - joint) <= 15)
+    ))).toBe(true);
+    expect(layout.hangerPositionsCm).toHaveLength(12);
+  });
+
+  it("does not generate carrier segments longer than the stock profile length", () => {
+    const layout = buildSuspendedCeilingLayout({
+      roomLengthCm: 900,
+      roomWidthCm: 200,
+      profileLengthCm: 400,
+      carrierRowSpacingCm: 50,
+      hangerSpacingCm: 80,
+      firstHangerOffsetCm: 10,
+      hangerNearJointMaxDistanceCm: 15,
+    });
+
+    const segmentLengths = layout.carrierExtensions.flatMap((line) => {
+      const boundaries = [0, ...line.pointsCm, 900];
+      return boundaries.slice(1).map((point, index) => point - boundaries[index]);
+    });
+
+    expect(segmentLengths.every((lengthCm) => lengthCm <= 400)).toBe(true);
+  });
+
+  it("adds extra hangers only as a fallback when the regular grid cannot support the joints", () => {
+    const regularGrid = buildLinearPositions(900, 120, 10);
+    const hangers = buildLayoutHangerPositions(900, 120, 10, [{ lineIndex: 0, pointsCm: [400, 800] }], 15);
+
+    expect(hangers.length).toBeGreaterThan(regularGrid.length);
+    expect([400, 800].every((joint) => hangers.some((hanger) => Math.abs(hanger - joint) <= 15))).toBe(true);
+  });
+
+  it("keeps multiple splices ordered on each row", () => {
+    const layout = buildStaggeredExtensionLayout(3, 1400, 4);
+
+    expect(layout.every((line) => line.pointsCm.length === 3)).toBe(true);
+    expect(layout.every((line) => line.pointsCm.every((point, index, points) => index === 0 || point > points[index - 1]))).toBe(true);
+  });
+
+  it("optimizes cuts with isolated full-length bars and packed shorter pieces", () => {
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: [
+        { rowIndex: 0, segments: [{ fromCm: 0, toCm: 390, lengthCm: 390 }, { fromCm: 390, toCm: 790, lengthCm: 400 }, { fromCm: 790, toCm: 900, lengthCm: 110 }] },
+        { rowIndex: 1, segments: [{ fromCm: 0, toCm: 250, lengthCm: 250 }, { fromCm: 250, toCm: 650, lengthCm: 400 }, { fromCm: 650, toCm: 900, lengthCm: 250 }] },
+      ],
+      mountingRows: [],
+      udProfiles: { segments: [] },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+    });
+
+    expect(plan.bars.filter((bar) => bar.pieces.length === 1 && bar.pieces[0]?.lengthCm === 400)).toHaveLength(2);
+    expect(plan.bars.every((bar) => bar.usedCm <= bar.stockLengthCm)).toBe(true);
+    expect(plan.totalBars).toBeGreaterThan(0);
+  });
+
+  it("packs carrier, mounting and ud pieces together in a shared pool", () => {
+    const twoHundredSegment = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      mountingRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      udProfiles: { segments: Array.from({ length: 4 }, () => twoHundredSegment) },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0,
+      minReusableOffcutCm: 20,
+    });
+
+    expect(plan.totalBars).toBe(6);
+    expect(plan.bars.every((bar) => bar.pieces.length === 2)).toBe(true);
+    expect(plan.efficiencyPercent).toBe(100);
+    expect(plan.carrierStats.totalUsedCm).toBe(800);
+    expect(plan.mountingStats.totalUsedCm).toBe(800);
+    expect(plan.udStats.totalUsedCm).toBe(800);
+  });
+
+  it("fits 200 + 200 into a 400 cm stock bar when kerf is excluded from fit check", () => {
+    const twoHundredSegment = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      mountingRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      udProfiles: { segments: Array.from({ length: 4 }, () => twoHundredSegment) },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+      includeKerfInFitCheck: false,
+    });
+
+    expect(plan.totalBars).toBe(6);
+    expect(plan.bars.every((bar) => bar.usedCm === 400)).toBe(true);
+    expect(plan.totalUsedCm).toBe(2400);
+    expect(plan.totalWasteCm).toBe(0);
+    expect(plan.efficiencyPercent).toBe(100);
+  });
+
+  it("uses the provided 300 cm stock length and requires more bars", () => {
+    const twoHundredSegment = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      mountingRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      udProfiles: { segments: Array.from({ length: 4 }, () => twoHundredSegment) },
+    }, {
+      stockLengthCm: 300,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+      includeKerfInFitCheck: false,
+    });
+
+    expect(plan.totalBars).toBe(12);
+    expect(plan.totalUsedCm).toBe(2400);
+    expect(plan.totalWasteCm).toBe(1200);
+    expect(plan.efficiencyPercent).toBe(66.67);
+    expect(plan.bars.every((bar) => bar.stockLengthCm === 300)).toBe(true);
+  });
+
+  it("uses the provided 600 cm stock length and requires fewer bars", () => {
+    const twoHundredSegment = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      mountingRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      udProfiles: { segments: Array.from({ length: 4 }, () => twoHundredSegment) },
+    }, {
+      stockLengthCm: 600,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+      includeKerfInFitCheck: false,
+    });
+
+    expect(plan.totalBars).toBe(4);
+    expect(plan.totalUsedCm).toBe(2400);
+    expect(plan.totalWasteCm).toBe(0);
+    expect(plan.efficiencyPercent).toBe(100);
+    expect(plan.bars.every((bar) => bar.stockLengthCm === 600)).toBe(true);
+  });
+
+  it("prioritizes perfect pairs before general packing for mixed piece sizes", () => {
+    const piece226 = { fromCm: 0, toCm: 226, lengthCm: 226 };
+    const piece200 = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [piece226] })),
+      mountingRows: Array.from({ length: 3 }, (_, rowIndex) => ({ rowIndex, segments: [piece200] })),
+      udProfiles: { segments: Array.from({ length: 3 }, () => piece200) },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+      includeKerfInFitCheck: false,
+    });
+
+    const fullTwoHundredBars = plan.bars.filter((bar) => (
+      bar.pieces.length === 2
+      && bar.pieces.every((piece) => piece.lengthCm === 200)
+      && bar.usedCm === 400
+    ));
+
+    expect(fullTwoHundredBars).toHaveLength(3);
+    expect(plan.bars.filter((bar) => bar.pieces.length === 1 && bar.pieces[0]?.lengthCm === 226)).toHaveLength(4);
+  });
+
+  it("fills existing gaps with smaller pieces after the initial FFD pass", () => {
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: [
+        { rowIndex: 0, segments: [{ fromCm: 0, toCm: 280, lengthCm: 280 }] },
+        { rowIndex: 1, segments: [{ fromCm: 0, toCm: 270, lengthCm: 270 }] },
+      ],
+      mountingRows: [
+        { rowIndex: 0, segments: [{ fromCm: 0, toCm: 70, lengthCm: 70 }] },
+        { rowIndex: 1, segments: [{ fromCm: 0, toCm: 60, lengthCm: 60 }] },
+        { rowIndex: 2, segments: [{ fromCm: 0, toCm: 60, lengthCm: 60 }] },
+        { rowIndex: 3, segments: [{ fromCm: 0, toCm: 60, lengthCm: 60 }] },
+      ],
+      udProfiles: { segments: [] },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0.3,
+      minReusableOffcutCm: 20,
+      includeKerfInFitCheck: false,
+    });
+
+    expect(plan.totalBars).toBe(2);
+    expect(plan.totalWasteCm).toBe(0);
+    expect(plan.efficiencyPercent).toBe(100);
+    expect(plan.bars.every((bar) => bar.usedCm === 400)).toBe(true);
+  });
+
+  it("builds a true global cut plan for a 2 x 2 m room", () => {
+    const room = makeRoom({ width: 200, length: 200, a: 900, b: 600, c: 600 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+    const plan = optimizeSuspendedCeilingCuts(input, {
+      stockLengthCm: 400,
+      kerfCm: 0,
+      minReusableOffcutCm: 20,
+    });
+
+    const allPieces = [
+      ...input.carrierRows.flatMap((row) => row.segments),
+      ...input.mountingRows.flatMap((row) => row.segments),
+      ...input.udProfiles.segments,
+    ];
+
+    expect(allPieces).toHaveLength(12);
+    expect(allPieces.every((segment) => segment.lengthCm === 200)).toBe(true);
+    expect(plan.totalBars).toBe(6);
+    expect(plan.totalUsedCm).toBe(2400);
+    expect(plan.totalWasteCm).toBe(0);
+    expect(plan.efficiencyPercent).toBe(100);
+    expect(plan.bars.every((bar) => bar.pieces.length === 2)).toBe(true);
+  });
+
+  it("builds cut optimization input from the generated layout without changing segment lengths", () => {
+    const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+    const expectedMountingRows = buildLinearPositions(result.L, room.b / 10, DEFAULT_CONSTANTS.profileEdgeOffsetCm);
+
+    expect(input.carrierRows).toHaveLength(result.bearingCount);
+    expect(input.mountingRows).toHaveLength(expectedMountingRows.length);
+    expect(input.carrierRows.every((row) => row.segments.reduce((sum, segment) => sum + segment.lengthCm, 0) === result.L)).toBe(true);
+    expect(input.mountingRows.every((row) => row.segments.reduce((sum, segment) => sum + segment.lengthCm, 0) === result.W)).toBe(true);
+    expect(input.mountingRows.every((row) => row.segments.every((segment) => segment.lengthCm <= DEFAULT_CONSTANTS.cdLength * 100))).toBe(true);
+    expect(input.udProfiles.segments.every((segment) => segment.lengthCm <= DEFAULT_CONSTANTS.udLength * 100)).toBe(true);
+  });
+
+  it("splits a 420 cm mounting row into balanced cut segments", () => {
+    const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+
+    expect(input.mountingRows[0]?.segments.map((segment) => segment.lengthCm)).toEqual([210, 210]);
+  });
+
+  it("keeps a short mounting row as one cut segment", () => {
+    const room = makeRoom({ width: 200, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+
+    expect(input.mountingRows[0]?.segments.map((segment) => segment.lengthCm)).toEqual([200]);
+  });
+
+  it("splits long mounting rows so that no cut segment exceeds stock length", () => {
+    const room = makeRoom({ width: 900, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+
+    expect(input.mountingRows[0]?.segments.map((segment) => segment.lengthCm)).toEqual([300, 300, 300]);
+    expect(input.mountingRows.every((row) => row.segments.every((segment) => segment.lengthCm <= DEFAULT_CONSTANTS.cdLength * 100))).toBe(true);
+  });
+
+  it("builds cut optimization input without any piece longer than stock length", () => {
+    const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+
+    const allLengths = [
+      ...input.carrierRows.flatMap((row) => row.segments.map((segment) => segment.lengthCm)),
+      ...input.mountingRows.flatMap((row) => row.segments.map((segment) => segment.lengthCm)),
+      ...input.udProfiles.segments.map((segment) => segment.lengthCm),
+    ];
+
+    expect(allLengths.every((lengthCm) => lengthCm <= DEFAULT_CONSTANTS.cdLength * 100)).toBe(true);
+    expect(() => optimizeSuspendedCeilingCuts(input, { stockLengthCm: DEFAULT_CONSTANTS.cdLength * 100 })).not.toThrow();
+  });
+
+  it("builds a single carrier segment for short rooms without joints or fallback hangers", () => {
+    const room = makeRoom({ width: 200, length: 200, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+    const layout = buildSuspendedCeilingLayout({
+      roomWidthCm: result.W,
+      roomLengthCm: result.L,
+      profileLengthCm: DEFAULT_CONSTANTS.cdLength * 100,
+      carrierRowSpacingCm: room.c / 10,
+      hangerSpacingCm: room.a / 10,
+      firstHangerOffsetCm: DEFAULT_CONSTANTS.profileEdgeOffsetCm,
+    });
+
+    expect(layout.carrierExtensions.every((line) => line.pointsCm.length === 0)).toBe(true);
+    expect(input.carrierRows.every((row) => row.segments.length === 1 && row.segments[0]?.fromCm === 0 && row.segments[0]?.toCm === result.L)).toBe(true);
+    expect(layout.hangerPositionsCm).toEqual(buildLinearPositions(result.L, room.a / 10, DEFAULT_CONSTANTS.profileEdgeOffsetCm));
+  });
+
   it("provides conservative custom defaults for manually tuned suspended ceilings", () => {
     expect(getAutoABC("0.30", false, "knauf_a_12.5", "CUSTOM")).toEqual({
       a: 900,
       b: 500,
       c: 1000,
-      offset: 30,
       udAnchorSpacing: 1000,
     });
   });

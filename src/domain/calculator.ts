@@ -26,7 +26,7 @@ export type BoardType =
   | "generic_25"
   | "custom";
 
-export type OverrideKey = "area" | "a" | "b" | "c" | "offset" | "udAnchorSpacing";
+export type OverrideKey = "area" | "a" | "b" | "c" | "udAnchorSpacing";
 
 export interface Room {
   id: string;
@@ -50,7 +50,6 @@ export interface Room {
   a: number;
   b: number;
   c: number;
-  offset: number;
   udAnchorSpacing: number;
   overrides: Record<OverrideKey, boolean>;
 }
@@ -66,6 +65,7 @@ export interface CalculatorConstants {
   boardWidth: number;
   boardLength: number;
   boardLayers: number;
+  profileEdgeOffsetCm: number;
   jointTapePerM2: number;
   jointCompoundKgPerM2: number;
   trennFixPerimeterMultiplier: number;
@@ -82,7 +82,6 @@ export interface ConstructionType {
   fireLoadClasses: LoadClass[];
   defaultLoadClass: LoadClass;
   defaultFireProtection: boolean;
-  defaultOffset: number;
   defaultUdAnchorSpacing: number;
   table: Record<"false" | "true", Partial<Record<number, Array<number | null>>>>;
 }
@@ -109,6 +108,101 @@ export interface CalcResult {
   metalScrews: number;
   drywallScrews: number;
   extensionsTotal: number;
+}
+
+export interface ExtensionLineLayout {
+  lineIndex: number;
+  pointsCm: number[];
+}
+
+export interface SuspendedCeilingLayoutInput {
+  roomLengthCm: number;
+  roomWidthCm: number;
+  profileLengthCm?: number;
+  carrierRowSpacingCm: number;
+  hangerSpacingCm: number;
+  firstHangerOffsetCm?: number;
+  minDistanceBetweenAlignedJointsCm?: number;
+  hangerNearJointMaxDistanceCm?: number;
+}
+
+export interface SuspendedCeilingLayout {
+  carrierRowsYcm: number[];
+  mountingRowsXcm: number[];
+  hangerPositionsCm: number[];
+  carrierExtensions: ExtensionLineLayout[];
+}
+
+export interface CeilingSegment {
+  fromCm: number;
+  toCm: number;
+  lengthCm: number;
+}
+
+export interface CeilingRowSegments {
+  rowIndex: number;
+  segments: CeilingSegment[];
+}
+
+export interface CutOptimizationInput {
+  carrierRows: CeilingRowSegments[];
+  mountingRows: CeilingRowSegments[];
+  udProfiles: {
+    segments: CeilingSegment[];
+  };
+}
+
+export type CutPieceType = "carrier" | "mounting" | "ud";
+
+export interface CutPiece {
+  id: string;
+  type: CutPieceType;
+  lengthCm: number;
+}
+
+export interface CutBarSegment {
+  pieceId: string;
+  type: CutPieceType;
+  lengthCm: number;
+  startCm: number;
+  endCm: number;
+}
+
+export type CutBarType = CutPieceType | "mixed";
+
+export interface CutBar {
+  id: string;
+  type: CutBarType;
+  stockLengthCm: number;
+  pieces: CutPiece[];
+  segments: CutBarSegment[];
+  usedCm: number;
+  wasteCm: number;
+  estimatedKerfLossCm: number;
+}
+
+export interface CutPlanStats {
+  totalBars: number;
+  totalUsedCm: number;
+  totalWasteCm: number;
+  efficiencyPercent: number;
+  lowerBoundBars: number;
+  estimatedKerfLossCm: number;
+}
+
+export interface CutOptimizationResult extends CutPlanStats {
+  bars: CutBar[];
+  carrierStats: CutPlanStats;
+  mountingStats: CutPlanStats;
+  udStats: CutPlanStats;
+}
+
+export interface CutOptimizationConfig {
+  stockLengthCm?: number;
+  kerfCm?: number;
+  minReusableOffcutCm?: number;
+  perTypeStockLengthsCm?: Partial<Record<CutPieceType, number>>;
+  includeKerfInFitCheck?: boolean;
 }
 
 export type ValidationSeverity = "error" | "warning";
@@ -567,7 +661,6 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
     fireLoadClasses: [],
     defaultLoadClass: "0.30",
     defaultFireProtection: false,
-    defaultOffset: 30,
     defaultUdAnchorSpacing: 1000,
     table: {
       false: {
@@ -590,7 +683,6 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
     fireLoadClasses: D112_VARIANTS.double_cd.fireLoadClasses,
     defaultLoadClass: "0.30",
     defaultFireProtection: false,
-    defaultOffset: 30,
     defaultUdAnchorSpacing: 625,
     table: D112_VARIANTS.double_cd.table,
   },
@@ -601,7 +693,6 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
     fireLoadClasses: FIRE_LOAD_CLASSES,
     defaultLoadClass: "0.30",
     defaultFireProtection: false,
-    defaultOffset: 30,
     defaultUdAnchorSpacing: 625,
     table: {
       false: {
@@ -635,7 +726,6 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
     fireLoadClasses: FIRE_LOAD_CLASSES,
     defaultLoadClass: "0.30",
     defaultFireProtection: false,
-    defaultOffset: 30,
     defaultUdAnchorSpacing: 625,
     table: D116_VARIANTS.ua_cd.table,
   },
@@ -646,7 +736,6 @@ export const CONSTRUCTION_TYPES: Record<SystemType, ConstructionType> = {
     fireLoadClasses: [],
     defaultLoadClass: "0.30",
     defaultFireProtection: false,
-    defaultOffset: 30,
     defaultUdAnchorSpacing: 1000,
     table: {
       false: {
@@ -668,6 +757,7 @@ export const DEFAULT_CONSTANTS: CalculatorConstants = {
   boardWidth: 1.2,
   boardLength: 2,
   boardLayers: 1,
+  profileEdgeOffsetCm: 10,
   jointTapePerM2: 1.4,
   jointCompoundKgPerM2: 0.3,
   trennFixPerimeterMultiplier: 1,
@@ -793,9 +883,8 @@ export function createRoom(name = "Стая"): Room {
     a: 900,
     b: 500,
     c: 600,
-    offset: construction.defaultOffset,
     udAnchorSpacing: construction.defaultUdAnchorSpacing,
-    overrides: { area: false, a: false, b: false, c: false, offset: false, udAnchorSpacing: false },
+    overrides: { area: false, a: false, b: false, c: false, udAnchorSpacing: false },
   };
   applyAutoABC(room);
   return room;
@@ -820,7 +909,6 @@ export function normalizeRoom(room: Room): Room {
     a: Boolean(incomingOverrides?.a),
     b: Boolean(incomingOverrides?.b),
     c: Boolean(incomingOverrides?.c),
-    offset: Boolean(incomingOverrides?.offset),
     udAnchorSpacing: Boolean(incomingOverrides?.udAnchorSpacing),
   };
   const loadClasses = getLoadClasses(room.systemType, room.fireProtection, room.d116Variant, room.d112Variant);
@@ -830,7 +918,6 @@ export function normalizeRoom(room: Room): Room {
   if (!loadClasses.includes(room.loadClass)) {
     room.loadClass = loadClasses[0] ?? construction.defaultLoadClass;
   }
-  if (!Number(room.offset)) room.offset = construction.defaultOffset;
   if (!Number(room.udAnchorSpacing)) room.udAnchorSpacing = construction.defaultUdAnchorSpacing;
   return room;
 }
@@ -863,7 +950,6 @@ export function getAutoABC(loadClass: LoadClass, fireProtection: boolean, boardT
       a: 900,
       c: 1000,
       b: boardType === "custom" ? 500 : BOARD_TYPE_TO_B[boardType] ?? 500,
-      offset: construction.defaultOffset,
       udAnchorSpacing: construction.defaultUdAnchorSpacing,
     };
   }
@@ -877,7 +963,6 @@ export function getAutoABC(loadClass: LoadClass, fireProtection: boolean, boardT
     a: table[firstValid]?.[idx] ?? 900,
     c: firstValid,
     b: boardType === "custom" ? 500 : BOARD_TYPE_TO_B[boardType] ?? 500,
-    offset: construction.defaultOffset,
     udAnchorSpacing: construction.defaultUdAnchorSpacing,
   };
 }
@@ -888,7 +973,6 @@ export function applyAutoABC(room: Room): void {
   if (!room.overrides.c) room.c = auto.c;
   if (!room.overrides.a) room.a = auto.a;
   if (!room.overrides.b) room.b = auto.b;
-  if (!room.overrides.offset) room.offset = auto.offset;
   if (!room.overrides.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
 }
 
@@ -898,7 +982,6 @@ export function syncSpacingFromKnaufTable(room: Room, { keepC = true } = {}): vo
     if (!room.overrides.c) room.c = auto.c;
     if (!room.overrides.a) room.a = auto.a;
     if (!room.overrides.b) room.b = auto.b;
-    if (!room.overrides.offset) room.offset = auto.offset;
     if (!room.overrides.udAnchorSpacing) room.udAnchorSpacing = auto.udAnchorSpacing;
     return;
   }
@@ -1070,12 +1153,12 @@ export function getFireCertificationCheck(room: Room): FireCertificationCheck {
 export function getValidationWarnings(room: Room): ValidationWarning[] {
   normalizeRoom(room);
   if (room.systemType === "CUSTOM") {
-    return [room.a, room.b, room.c, room.offset, room.udAnchorSpacing].every((value) => Number.isFinite(value) && value > 0)
+    return [room.a, room.b, room.c, room.udAnchorSpacing].every((value) => Number.isFinite(value) && value > 0)
       ? []
       : [{
         code: "custom-positive-spacing",
         severity: "error",
-        message: "Custom конструкцията изисква положителни стойности за a, b, c, начално отстояние и UD стъпка.",
+        message: "Custom конструкцията изисква положителни стойности за a, b, c и UD стъпка.",
       }];
   }
 
@@ -1308,7 +1391,7 @@ export function countBySpacing(lengthCm: number, spacingMm: number, edgeCm: numb
   return Math.ceil(effectiveLength / (spacingMm / 10)) + 1;
 }
 
-export function buildPositions(limitCm: number, spacingMm: number, edgeCm = 30): number[] {
+export function buildPositions(limitCm: number, spacingMm: number, edgeCm = DEFAULT_CONSTANTS.profileEdgeOffsetCm): number[] {
   if (!limitCm || !spacingMm) return [];
   const count = countBySpacing(limitCm, spacingMm, edgeCm);
   const start = Math.min(edgeCm, limitCm / 2);
@@ -1319,6 +1402,722 @@ export function buildPositions(limitCm: number, spacingMm: number, edgeCm = 30):
   return Array.from({ length: count }, (_, idx) => start + idx * actualSpacing);
 }
 
+export function buildLinearPositions(limitCm: number, spacingCm: number, firstOffsetCm = DEFAULT_CONSTANTS.profileEdgeOffsetCm): number[] {
+  if (!limitCm || !spacingCm) return [];
+  const max = Math.max(0, limitCm - firstOffsetCm);
+  const positions: number[] = [];
+  for (let current = firstOffsetCm; current <= max; current += spacingCm) positions.push(current);
+  return positions;
+}
+
+function getStaggerOffsetCm(rowIndex: number, profileLengthCm: number): number {
+  const offsets = [0, profileLengthCm / 2, profileLengthCm / 4, (profileLengthCm * 3) / 4];
+  return offsets[rowIndex % offsets.length] ?? 0;
+}
+
+function hasNearbyPosition(positionsCm: number[], targetCm: number, maxDistanceCm: number): boolean {
+  return positionsCm.some((position) => Math.abs(position - targetCm) <= maxDistanceCm);
+}
+
+function canPlaceHanger(positionsCm: number[], candidateCm: number, roomLengthCm: number, minHangerDistanceCm: number): boolean {
+  if (candidateCm <= 0 || candidateCm >= roomLengthCm) return false;
+  return positionsCm.every((position) => Math.abs(position - candidateCm) >= minHangerDistanceCm);
+}
+
+function getGridStepCm(positionsCm: number[]): number | null {
+  if (positionsCm.length < 2) return null;
+  const gaps = positionsCm.slice(1).map((position, index) => position - positionsCm[index]).filter((gap) => gap > 0);
+  if (!gaps.length) return null;
+  return gaps[0] ?? null;
+}
+
+function getJointCandidatePositions(
+  jointCm: number,
+  previousBoundaryCm: number,
+  nextBoundaryCm: number,
+  roomLengthCm: number,
+): number[] {
+  const leftSegmentLength = jointCm - previousBoundaryCm;
+  const rightSegmentLength = nextBoundaryCm - jointCm;
+  const preferLeft = leftSegmentLength >= rightSegmentLength;
+  const preferred10 = preferLeft ? jointCm - 10 : jointCm + 10;
+  const secondary10 = preferLeft ? jointCm + 10 : jointCm - 10;
+  const preferred15 = preferLeft ? jointCm - 15 : jointCm + 15;
+  const secondary15 = preferLeft ? jointCm + 15 : jointCm - 15;
+  return [preferred10, secondary10, preferred15, secondary15]
+    .filter((value, index, values) => value > 0 && value < roomLengthCm && values.indexOf(value) === index);
+}
+
+function getJointSnapCandidates(supportCm: number, roomLengthCm: number): number[] {
+  return [supportCm - 10, supportCm + 10, supportCm - 15, supportCm + 15]
+    .filter((value, index, values) => value > 0 && value < roomLengthCm && values.indexOf(value) === index);
+}
+
+function sortNumericAscending(values: number[]): number[] {
+  return [...values].sort((left, right) => left - right);
+}
+
+function isValidJointCandidate(
+  jointCm: number,
+  previousBoundaryCm: number,
+  lineLengthCm: number,
+  profileLengthCm: number,
+  remainingSplices: number,
+): boolean {
+  const currentSegmentLength = jointCm - previousBoundaryCm;
+  const remainingLength = lineLengthCm - jointCm;
+  const remainingSegments = remainingSplices + 1;
+
+  return currentSegmentLength > 0
+    && currentSegmentLength <= profileLengthCm
+    && remainingLength > 0
+    && remainingLength <= remainingSegments * profileLengthCm;
+}
+
+function selectSingleJointSupport(
+  supports: number[],
+  lineLengthCm: number,
+  profileLengthCm: number,
+  previousRowPoints: number[],
+): number | null {
+  const midpoint = lineLengthCm / 2;
+  const candidates = supports.filter((jointCm) => (
+    jointCm > 30
+    && lineLengthCm - jointCm > 30
+    && jointCm <= profileLengthCm
+    && lineLengthCm - jointCm <= profileLengthCm
+    && previousRowPoints.every((point) => Math.abs(point - jointCm) >= 60)
+  ));
+  if (!candidates.length) return null;
+
+  return candidates
+    .map((jointCm) => ({
+      jointCm,
+      balanceScore: Math.min(jointCm, lineLengthCm - jointCm),
+      midpointDistance: Math.abs(midpoint - jointCm),
+    }))
+    .sort((left, right) => (
+      right.balanceScore - left.balanceScore
+      || left.midpointDistance - right.midpointDistance
+      || left.jointCm - right.jointCm
+    ))[0]?.jointCm ?? null;
+}
+
+function allJointsAreNearHangers(
+  carrierExtensions: ExtensionLineLayout[],
+  hangersCm: number[],
+  hangerNearJointMaxDistanceCm: number,
+): boolean {
+  return carrierExtensions.every((line) => (
+    line.pointsCm.every((jointCm) => hasNearbyPosition(hangersCm, jointCm, hangerNearJointMaxDistanceCm))
+  ));
+}
+
+export function buildStaggeredExtensionLayout(
+  lineCount: number,
+  lineLengthCm: number,
+  profileLengthM: number,
+  supportPositionsCm: number[] = [],
+  minDistanceBetweenAlignedJointsCm = 80,
+  hangerNearJointMaxDistanceCm = 15,
+): ExtensionLineLayout[] {
+  const normalizedLineCount = Math.max(0, Math.floor(lineCount));
+  const profileLengthCm = Math.max(0, profileLengthM * 100);
+  if (!normalizedLineCount || !profileLengthCm || !lineLengthCm) {
+    return Array.from({ length: normalizedLineCount }, (_, lineIndex) => ({ lineIndex, pointsCm: [] }));
+  }
+  if (lineLengthCm <= profileLengthCm) {
+    return Array.from({ length: normalizedLineCount }, (_, lineIndex) => ({ lineIndex, pointsCm: [] }));
+  }
+
+  const supports = sortNumericAscending(
+    supportPositionsCm.filter((position) => Number.isFinite(position) && position > 0 && position < lineLengthCm),
+  );
+  const supportStepCm = getGridStepCm(supports);
+  const stepHangers = supportStepCm ? Math.max(1, Math.round(profileLengthCm / supportStepCm)) : 0;
+  const rowStartPattern = stepHangers
+    ? [stepHangers, Math.max(1, stepHangers - 2), Math.max(1, stepHangers - 1), Math.max(1, stepHangers - 3)]
+    : [];
+  const spliceCount = Math.max(0, Math.ceil(lineLengthCm / profileLengthCm) - 1);
+
+  const layout: ExtensionLineLayout[] = [];
+
+  for (let lineIndex = 0; lineIndex < normalizedLineCount; lineIndex += 1) {
+    const previousRowPoints = layout[lineIndex - 1]?.pointsCm ?? [];
+
+    if (spliceCount === 1 && supports.length) {
+      const jointCm = selectSingleJointSupport(supports, lineLengthCm, profileLengthCm, previousRowPoints);
+      layout.push({ lineIndex, pointsCm: jointCm == null ? [] : [jointCm] });
+      continue;
+    }
+
+    if (supports.length && stepHangers > 0) {
+      const pointsCm: number[] = [];
+      let supportIndex = rowStartPattern[lineIndex % rowStartPattern.length] ?? stepHangers;
+
+      while (supportIndex < supports.length) {
+        const supportCm = supports[supportIndex] ?? Number.NaN;
+        const previousBoundaryCm = pointsCm[pointsCm.length - 1] ?? 0;
+        const remainingSplices = Math.max(0, spliceCount - pointsCm.length - 1);
+        const jointCm = Number.isFinite(supportCm)
+          ? getJointSnapCandidates(supportCm, lineLengthCm).find((candidateCm) => (
+            candidateCm > 30
+            && lineLengthCm - candidateCm > 30
+            && hasNearbyPosition(supports, candidateCm, hangerNearJointMaxDistanceCm)
+            && pointsCm.every((point) => Math.abs(point - candidateCm) >= minDistanceBetweenAlignedJointsCm)
+            && previousRowPoints.every((point) => Math.abs(point - candidateCm) >= 60)
+            && isValidJointCandidate(candidateCm, previousBoundaryCm, lineLengthCm, profileLengthCm, remainingSplices)
+          )) ?? Number.NaN
+          : Number.NaN;
+        const isFarFromAdjacentRow = previousRowPoints.every((point) => Math.abs(point - jointCm) >= 60);
+        if (
+          Number.isFinite(jointCm)
+          && isFarFromAdjacentRow
+        ) {
+          pointsCm.push(jointCm);
+        }
+        supportIndex += stepHangers;
+      }
+
+      layout.push({ lineIndex, pointsCm });
+      continue;
+    }
+
+    const pointsCm: number[] = [];
+    const offsetCm = getStaggerOffsetCm(lineIndex, profileLengthCm);
+    let jointCm = profileLengthCm - offsetCm;
+
+    while (jointCm < lineLengthCm) {
+      const distanceToNearestExisting = pointsCm.length
+        ? Math.min(...pointsCm.map((point) => Math.abs(point - jointCm)))
+        : Number.POSITIVE_INFINITY;
+      if (
+        jointCm > 30
+        && lineLengthCm - jointCm > 30
+        && distanceToNearestExisting >= minDistanceBetweenAlignedJointsCm
+        && previousRowPoints.every((point) => Math.abs(point - jointCm) >= 60)
+      ) {
+        pointsCm.push(jointCm);
+      }
+      jointCm += profileLengthCm;
+    }
+
+    layout.push({ lineIndex, pointsCm });
+  }
+
+  return layout;
+}
+
+export function buildLayoutHangerPositions(
+  roomLengthCm: number,
+  hangerSpacingCm: number,
+  firstHangerOffsetCm: number,
+  carrierExtensions: ExtensionLineLayout[],
+  hangerNearJointMaxDistanceCm = 15,
+  minHangerDistanceCm = 20,
+): number[] {
+  const hangers = buildLinearPositions(roomLengthCm, hangerSpacingCm, firstHangerOffsetCm);
+  if (allJointsAreNearHangers(carrierExtensions, hangers, hangerNearJointMaxDistanceCm)) {
+    return hangers;
+  }
+
+  for (const line of carrierExtensions) {
+    const boundaries = [0, ...line.pointsCm, roomLengthCm];
+    line.pointsCm.forEach((jointCm, jointIndex) => {
+      if (hasNearbyPosition(hangers, jointCm, hangerNearJointMaxDistanceCm)) return;
+
+      const candidatePositions = getJointCandidatePositions(
+        jointCm,
+        boundaries[jointIndex] ?? 0,
+        boundaries[jointIndex + 2] ?? roomLengthCm,
+        roomLengthCm,
+      );
+
+      const candidate = candidatePositions.find((value) => canPlaceHanger(hangers, value, roomLengthCm, minHangerDistanceCm));
+      if (candidate != null) hangers.push(candidate);
+    });
+  }
+
+  return sortNumericAscending(hangers);
+}
+
+export function buildSuspendedCeilingLayout(input: SuspendedCeilingLayoutInput): SuspendedCeilingLayout {
+  const {
+    roomLengthCm,
+    roomWidthCm,
+    profileLengthCm = 400,
+    carrierRowSpacingCm,
+    hangerSpacingCm,
+    firstHangerOffsetCm = 10,
+    minDistanceBetweenAlignedJointsCm = 80,
+    hangerNearJointMaxDistanceCm = 15,
+  } = input;
+
+  const carrierRowsYcm = buildLinearPositions(roomWidthCm, carrierRowSpacingCm, firstHangerOffsetCm);
+  const mountingRowsXcm = buildLinearPositions(roomLengthCm, carrierRowSpacingCm, firstHangerOffsetCm);
+  const regularHangerPositions = buildLinearPositions(roomLengthCm, hangerSpacingCm, firstHangerOffsetCm);
+  const carrierExtensions = buildStaggeredExtensionLayout(
+    carrierRowsYcm.length,
+    roomLengthCm,
+    profileLengthCm / 100,
+    regularHangerPositions,
+    minDistanceBetweenAlignedJointsCm,
+    hangerNearJointMaxDistanceCm,
+  );
+  const hangerPositionsCm = buildLayoutHangerPositions(
+    roomLengthCm,
+    hangerSpacingCm,
+    firstHangerOffsetCm,
+    carrierExtensions,
+    hangerNearJointMaxDistanceCm,
+  );
+
+  return {
+    carrierRowsYcm,
+    mountingRowsXcm,
+    hangerPositionsCm,
+    carrierExtensions,
+  };
+}
+
+function buildSegmentsFromBreakpoints(totalLengthCm: number, breakpointsCm: number[]): CeilingSegment[] {
+  const points = [0, ...breakpointsCm, totalLengthCm]
+    .filter((value, index, values) => value >= 0 && value <= totalLengthCm && values.indexOf(value) === index)
+    .sort((left, right) => left - right);
+  const segments: CeilingSegment[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const fromCm = points[index - 1] ?? 0;
+    const toCm = points[index] ?? totalLengthCm;
+    if (toCm <= fromCm) continue;
+    segments.push({ fromCm, toCm, lengthCm: Number((toCm - fromCm).toFixed(2)) });
+  }
+  return segments;
+}
+
+function splitSegmentForCut(segment: CeilingSegment, maxLengthCm: number): CeilingSegment[] {
+  if (!Number.isFinite(segment.lengthCm) || segment.lengthCm <= 0) return [];
+  if (!Number.isFinite(maxLengthCm) || maxLengthCm <= 0 || segment.lengthCm <= maxLengthCm + 0.0001) {
+    return [{ ...segment, lengthCm: Number(segment.lengthCm.toFixed(2)) }];
+  }
+
+  const partCount = Math.ceil(segment.lengthCm / maxLengthCm);
+  const baseLengthCm = Number((segment.lengthCm / partCount).toFixed(2));
+  const parts: CeilingSegment[] = [];
+  let fromCm = segment.fromCm;
+
+  for (let index = 0; index < partCount; index += 1) {
+    const remainingLengthCm = Number((segment.toCm - fromCm).toFixed(2));
+    const isLast = index === partCount - 1;
+    const lengthCm = isLast ? remainingLengthCm : Math.min(baseLengthCm, remainingLengthCm);
+    const toCm = Number((fromCm + lengthCm).toFixed(2));
+    parts.push({
+      fromCm: Number(fromCm.toFixed(2)),
+      toCm,
+      lengthCm: Number(lengthCm.toFixed(2)),
+    });
+    fromCm = toCm;
+  }
+
+  return parts;
+}
+
+function splitSegmentsForCut(segments: CeilingSegment[], maxLengthCm: number): CeilingSegment[] {
+  return segments.flatMap((segment) => splitSegmentForCut(segment, maxLengthCm));
+}
+
+export function buildCutOptimizationInput(room: Room, result: CalcResult, constants: CalculatorConstants = DEFAULT_CONSTANTS): CutOptimizationInput {
+  constants = withDefaultConstants(constants);
+  const cdStockLengthCm = constants.cdLength * 100;
+  const udStockLengthCm = constants.udLength * 100;
+  const layout = buildSuspendedCeilingLayout({
+    roomWidthCm: result.W,
+    roomLengthCm: result.L,
+    profileLengthCm: cdStockLengthCm,
+    carrierRowSpacingCm: room.c / 10,
+    hangerSpacingCm: room.a / 10,
+    firstHangerOffsetCm: constants.profileEdgeOffsetCm,
+  });
+  const mountingRowsXcm = buildLinearPositions(result.L, room.b / 10, constants.profileEdgeOffsetCm);
+
+  return {
+    carrierRows: layout.carrierRowsYcm.map((_, rowIndex) => ({
+      rowIndex,
+      segments: splitSegmentsForCut(
+        buildSegmentsFromBreakpoints(result.L, layout.carrierExtensions.find((line) => line.lineIndex === rowIndex)?.pointsCm ?? []),
+        cdStockLengthCm,
+      ),
+    })),
+    mountingRows: mountingRowsXcm.map((_, rowIndex) => ({
+      rowIndex,
+      segments: splitSegmentsForCut(
+        [{ fromCm: 0, toCm: result.W, lengthCm: Number(result.W.toFixed(2)) }],
+        cdStockLengthCm,
+      ),
+    })),
+    udProfiles: {
+      segments: splitSegmentsForCut([
+        { fromCm: 0, toCm: result.L, lengthCm: Number(result.L.toFixed(2)) },
+        { fromCm: 0, toCm: result.L, lengthCm: Number(result.L.toFixed(2)) },
+        { fromCm: 0, toCm: result.W, lengthCm: Number(result.W.toFixed(2)) },
+        { fromCm: 0, toCm: result.W, lengthCm: Number(result.W.toFixed(2)) },
+      ], udStockLengthCm),
+    },
+  };
+}
+
+function buildCutPieces(input: CutOptimizationInput): CutPiece[] {
+  const carrierPieces = input.carrierRows.flatMap((row) => row.segments.map((segment, index) => ({
+    id: `carrier-${row.rowIndex}-${index}`,
+    type: "carrier" as const,
+    lengthCm: segment.lengthCm,
+  })));
+  const mountingPieces = input.mountingRows.flatMap((row) => row.segments.map((segment, index) => ({
+    id: `mounting-${row.rowIndex}-${index}`,
+    type: "mounting" as const,
+    lengthCm: segment.lengthCm,
+  })));
+  const udPieces = input.udProfiles.segments.map((segment, index) => ({
+    id: `ud-${index}`,
+    type: "ud" as const,
+    lengthCm: segment.lengthCm,
+  }));
+  return [...carrierPieces, ...mountingPieces, ...udPieces];
+}
+
+function finalizeCutBar(
+  bar: Omit<CutBar, "segments" | "usedCm" | "wasteCm" | "estimatedKerfLossCm">,
+  kerfCm: number,
+  includeKerfInFitCheck: boolean,
+): CutBar {
+  let cursor = 0;
+  const segments = bar.pieces.map((piece, index) => {
+    const startCm = cursor;
+    const endCm = startCm + piece.lengthCm;
+    cursor = endCm + (includeKerfInFitCheck && index < bar.pieces.length - 1 ? kerfCm : 0);
+    return { pieceId: piece.id, type: piece.type, lengthCm: piece.lengthCm, startCm, endCm };
+  });
+  const pieceLengthCm = bar.pieces.reduce((sum, piece) => sum + piece.lengthCm, 0);
+  const estimatedKerfLossCm = Number((Math.max(0, bar.pieces.length - 1) * kerfCm).toFixed(2));
+  const usedCm = Number((pieceLengthCm + (includeKerfInFitCheck ? estimatedKerfLossCm : 0)).toFixed(2));
+  const uniqueTypes = [...new Set(bar.pieces.map((piece) => piece.type))];
+  return {
+    ...bar,
+    type: uniqueTypes.length === 1 ? uniqueTypes[0] ?? "mixed" : "mixed",
+    segments,
+    usedCm,
+    wasteCm: Number((bar.stockLengthCm - usedCm).toFixed(2)),
+    estimatedKerfLossCm,
+  };
+}
+
+function getBarUsedCm(pieces: CutPiece[], kerfCm: number, includeKerfInFitCheck: boolean): number {
+  const pieceLengthCm = pieces.reduce((sum, piece) => sum + piece.lengthCm, 0);
+  const kerfLossCm = includeKerfInFitCheck ? Math.max(0, pieces.length - 1) * kerfCm : 0;
+  return Number((pieceLengthCm + kerfLossCm).toFixed(2));
+}
+
+function canFitPieceInBar(pieces: CutPiece[], piece: CutPiece, stockLengthCm: number, kerfCm: number, includeKerfInFitCheck: boolean): boolean {
+  const nextUsed = getBarUsedCm([...pieces, piece], kerfCm, includeKerfInFitCheck);
+  return nextUsed <= stockLengthCm + 0.0001;
+}
+
+function extractPerfectPairBars(
+  pieces: CutPiece[],
+  stockLengthCm: number,
+  kerfCm: number,
+  includeKerfInFitCheck: boolean,
+): { pairedBars: Array<Omit<CutBar, "segments" | "usedCm" | "wasteCm" | "estimatedKerfLossCm">>; remainingPieces: CutPiece[] } {
+  const groups = new Map<number, CutPiece[]>();
+  for (const piece of pieces) {
+    const key = Number(piece.lengthCm.toFixed(2));
+    const bucket = groups.get(key) ?? [];
+    bucket.push(piece);
+    groups.set(key, bucket);
+  }
+
+  const pairedBars: Array<Omit<CutBar, "segments" | "usedCm" | "wasteCm" | "estimatedKerfLossCm">> = [];
+  const remainingPieces: CutPiece[] = [];
+
+  for (const [lengthCm, groupPieces] of groups.entries()) {
+    const canPerfectPair = Math.abs(lengthCm * 2 - stockLengthCm) < 0.0001
+      && canFitPieceInBar([groupPieces[0]!], groupPieces[0]!, stockLengthCm, kerfCm, includeKerfInFitCheck);
+
+    if (!canPerfectPair) {
+      remainingPieces.push(...groupPieces);
+      continue;
+    }
+
+    const pairCount = Math.floor(groupPieces.length / 2);
+    for (let index = 0; index < pairCount; index += 1) {
+      const firstPiece = groupPieces[index * 2]!;
+      const secondPiece = groupPieces[index * 2 + 1]!;
+      pairedBars.push({
+        id: `bar-pair-${pairedBars.length + 1}`,
+        type: firstPiece.type,
+        stockLengthCm,
+        pieces: [firstPiece, secondPiece],
+      });
+    }
+
+    if (groupPieces.length % 2 === 1) {
+      remainingPieces.push(groupPieces[groupPieces.length - 1]!);
+    }
+  }
+
+  return { pairedBars, remainingPieces };
+}
+
+function packPiecesFfd(pieces: CutPiece[], stockLengthCm: number, kerfCm: number, includeKerfInFitCheck: boolean): CutBar[] {
+  const directBars = pieces
+    .filter((piece) => Math.abs(piece.lengthCm - stockLengthCm) < 0.0001)
+    .map((piece, index) => finalizeCutBar({
+      id: `bar-full-${index + 1}`,
+      type: piece.type,
+      stockLengthCm,
+      pieces: [piece],
+    }, kerfCm, includeKerfInFitCheck));
+
+  const shortPieces = pieces.filter((piece) => piece.lengthCm < stockLengthCm - 0.0001);
+  const perfectPairs = extractPerfectPairBars(shortPieces, stockLengthCm, kerfCm, includeKerfInFitCheck);
+  const remainingPieces = perfectPairs.remainingPieces
+    .sort((left, right) => right.lengthCm - left.lengthCm);
+
+  const packedBars: Array<Omit<CutBar, "segments" | "usedCm" | "wasteCm" | "estimatedKerfLossCm">> = [];
+  for (const piece of remainingPieces) {
+    const targetBar = packedBars.find((bar) => canFitPieceInBar(bar.pieces, piece, stockLengthCm, kerfCm, includeKerfInFitCheck));
+    if (targetBar) {
+      targetBar.pieces.push(piece);
+      continue;
+    }
+    packedBars.push({
+      id: `bar-${packedBars.length + 1}`,
+      type: piece.type,
+      stockLengthCm,
+      pieces: [piece],
+    });
+  }
+
+  return [
+    ...directBars,
+    ...perfectPairs.pairedBars.map((bar) => finalizeCutBar(bar, kerfCm, includeKerfInFitCheck)),
+    ...packedBars.map((bar) => finalizeCutBar(bar, kerfCm, includeKerfInFitCheck)),
+  ];
+}
+
+function optimizeBarsWithOffcuts(bars: CutBar[], kerfCm: number, minReusableOffcutCm: number, includeKerfInFitCheck: boolean): CutBar[] {
+  const mutableBars = bars.map((bar) => ({ ...bar, pieces: [...bar.pieces] }));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    const sourceCandidates = [...mutableBars]
+      .filter((bar) => bar.pieces.length > 0 && bar.wasteCm > 0)
+      .sort((left, right) => left.usedCm - right.usedCm);
+
+    for (const source of sourceCandidates) {
+      const sourceIndex = mutableBars.findIndex((bar) => bar.id === source.id);
+      if (sourceIndex < 0) continue;
+
+      const targetIndices = mutableBars
+        .map((bar, index) => ({ bar, index }))
+        .filter(({ index, bar }) => index !== sourceIndex && bar.wasteCm >= minReusableOffcutCm);
+
+      const simulated = mutableBars.map((bar) => ({ ...bar, pieces: [...bar.pieces] }));
+      let canMoveAll = true;
+
+      for (const piece of [...source.pieces].sort((left, right) => left.lengthCm - right.lengthCm)) {
+        const target = targetIndices.find(({ index }) => canFitPieceInBar(simulated[index]?.pieces ?? [], piece, simulated[index]?.stockLengthCm ?? 0, kerfCm, includeKerfInFitCheck));
+        if (!target) {
+          canMoveAll = false;
+          break;
+        }
+        simulated[target.index]!.pieces.push(piece);
+      }
+
+      if (!canMoveAll) continue;
+
+      targetIndices.forEach(({ index }) => {
+        mutableBars[index] = finalizeCutBar({
+          id: simulated[index]!.id,
+          type: simulated[index]!.type,
+          stockLengthCm: simulated[index]!.stockLengthCm,
+          pieces: simulated[index]!.pieces,
+        }, kerfCm, includeKerfInFitCheck);
+      });
+      mutableBars.splice(sourceIndex, 1);
+      changed = true;
+      break;
+    }
+  }
+
+  changed = true;
+  while (changed) {
+    changed = false;
+    const candidates = mutableBars
+      .map((bar, index) => ({ bar, index }))
+      .sort((left, right) => right.bar.wasteCm - left.bar.wasteCm);
+
+    for (let start = 0; start < candidates.length - 1; start += 1) {
+      const subset = candidates.slice(start, start + 3);
+      if (subset.length < 2) continue;
+
+      const repacked = tryRepackBarSubset(
+        subset.map(({ bar }) => bar.pieces),
+        subset[0]!.bar.stockLengthCm,
+        kerfCm,
+        includeKerfInFitCheck,
+      );
+      if (!repacked || repacked.length >= subset.length) continue;
+
+      subset
+        .map(({ index }) => index)
+        .sort((left, right) => right - left)
+        .forEach((index) => { mutableBars.splice(index, 1); });
+
+      repacked.forEach((pieces, index) => {
+        mutableBars.push(finalizeCutBar({
+          id: `bar-repack-${start + 1}-${index + 1}`,
+          type: pieces[0]?.type ?? "mixed",
+          stockLengthCm: subset[0]!.bar.stockLengthCm,
+          pieces,
+        }, kerfCm, includeKerfInFitCheck));
+      });
+
+      changed = true;
+      break;
+    }
+  }
+
+  return mutableBars.map((bar) => finalizeCutBar({
+    id: bar.id,
+    type: bar.type,
+    stockLengthCm: bar.stockLengthCm,
+    pieces: bar.pieces,
+  }, kerfCm, includeKerfInFitCheck));
+}
+
+function tryRepackBarSubset(
+  pieceGroups: CutPiece[][],
+  stockLengthCm: number,
+  kerfCm: number,
+  includeKerfInFitCheck: boolean,
+): CutPiece[][] | null {
+  const pieces = pieceGroups.flat().sort((left, right) => right.lengthCm - left.lengthCm);
+  const originalBarCount = pieceGroups.length;
+  let best: CutPiece[][] | null = null;
+
+  function search(pieceIndex: number, bars: CutPiece[][]): void {
+    if (bars.length >= originalBarCount) return;
+    if (best && bars.length >= best.length) return;
+    if (pieceIndex >= pieces.length) {
+      best = bars.map((bar) => [...bar]);
+      return;
+    }
+
+    const piece = pieces[pieceIndex]!;
+    const seenUsages = new Set<number>();
+    for (let barIndex = 0; barIndex < bars.length; barIndex += 1) {
+      const usage = getBarUsedCm(bars[barIndex]!, kerfCm, includeKerfInFitCheck);
+      if (seenUsages.has(usage)) continue;
+      if (!canFitPieceInBar(bars[barIndex]!, piece, stockLengthCm, kerfCm, includeKerfInFitCheck)) continue;
+      seenUsages.add(usage);
+      bars[barIndex]!.push(piece);
+      search(pieceIndex + 1, bars);
+      bars[barIndex]!.pop();
+    }
+
+    if (bars.length + 1 < originalBarCount) {
+      bars.push([piece]);
+      search(pieceIndex + 1, bars);
+      bars.pop();
+    }
+  }
+
+  search(0, []);
+  return best;
+}
+
+function buildCutPlanStats(bars: CutBar[], stockLengthCm: number): CutPlanStats {
+  const totalBars = bars.length;
+  const totalUsedCm = Number(bars.reduce((sum, bar) => sum + bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
+  const totalPurchasedCm = totalBars * stockLengthCm;
+  const totalWasteCm = Number((totalPurchasedCm - totalUsedCm).toFixed(2));
+  const efficiencyPercent = totalBars ? Number(((totalUsedCm / (totalBars * stockLengthCm)) * 100).toFixed(2)) : 0;
+  const totalPieceLength = Number(bars.reduce((sum, bar) => sum + bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
+  const estimatedKerfLossCm = Number(bars.reduce((sum, bar) => sum + bar.estimatedKerfLossCm, 0).toFixed(2));
+  const lowerBoundBars = stockLengthCm > 0 ? Math.ceil(totalPieceLength / stockLengthCm) : 0;
+  return { totalBars, totalUsedCm, totalWasteCm, efficiencyPercent, lowerBoundBars, estimatedKerfLossCm };
+}
+
+function resolveSharedCutStockLength(config: Required<CutOptimizationConfig>): number {
+  return config.stockLengthCm;
+}
+
+function buildCutPlanStatsForType(type: CutPieceType, bars: CutBar[], stockLengthCm: number): CutPlanStats {
+  const relevantBars = bars.filter((bar) => bar.pieces.some((piece) => piece.type === type));
+  const totalBars = relevantBars.length;
+  const totalPieceLength = Number(relevantBars.reduce((sum, bar) => sum + bar.pieces
+    .filter((piece) => piece.type === type)
+    .reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
+  const allocations = relevantBars.reduce((sum, bar) => {
+    const barPieceLength = bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
+    const relevantPieceLength = bar.pieces
+      .filter((piece) => piece.type === type)
+      .reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
+    const share = barPieceLength > 0 ? relevantPieceLength / barPieceLength : 0;
+    return {
+      usedCm: sum.usedCm + bar.usedCm * share,
+      wasteCm: sum.wasteCm + bar.wasteCm * share,
+    };
+  }, { usedCm: 0, wasteCm: 0 });
+  const totalUsedCm = totalPieceLength;
+  const totalWasteCm = Number(allocations.wasteCm.toFixed(2));
+  const capacityCm = totalUsedCm + totalWasteCm;
+  const efficiencyPercent = capacityCm > 0 ? Number(((totalUsedCm / capacityCm) * 100).toFixed(2)) : 0;
+  const lowerBoundBars = stockLengthCm > 0 ? Math.ceil(totalPieceLength / stockLengthCm) : 0;
+  const estimatedKerfLossCm = Number(relevantBars.reduce((sum, bar) => {
+    const barPieceLength = bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
+    const relevantPieceLength = bar.pieces
+      .filter((piece) => piece.type === type)
+      .reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
+    const share = barPieceLength > 0 ? relevantPieceLength / barPieceLength : 0;
+    return sum + bar.estimatedKerfLossCm * share;
+  }, 0).toFixed(2));
+  return { totalBars, totalUsedCm, totalWasteCm, efficiencyPercent, lowerBoundBars, estimatedKerfLossCm };
+}
+
+export function optimizeSuspendedCeilingCuts(input: CutOptimizationInput, config: CutOptimizationConfig = {}): CutOptimizationResult {
+  const resolvedConfig: Required<CutOptimizationConfig> = {
+    stockLengthCm: config.stockLengthCm ?? 400,
+    kerfCm: config.kerfCm ?? 0.3,
+    minReusableOffcutCm: config.minReusableOffcutCm ?? 20,
+    perTypeStockLengthsCm: config.perTypeStockLengthsCm ?? {},
+    includeKerfInFitCheck: config.includeKerfInFitCheck ?? false,
+  };
+
+  const pieces = buildCutPieces(input);
+  const stockLengthCm = resolveSharedCutStockLength(resolvedConfig);
+  const invalidPiece = pieces.find((piece) => piece.lengthCm > stockLengthCm + 0.0001);
+  if (invalidPiece) {
+    throw new Error(`Парче ${invalidPiece.id} (${invalidPiece.lengthCm} cm) е по-дълго от наличния прът ${stockLengthCm} cm.`);
+  }
+
+  const packed = packPiecesFfd(pieces, stockLengthCm, resolvedConfig.kerfCm, resolvedConfig.includeKerfInFitCheck);
+  const bars = optimizeBarsWithOffcuts(packed, resolvedConfig.kerfCm, resolvedConfig.minReusableOffcutCm, resolvedConfig.includeKerfInFitCheck);
+  const overallStats = buildCutPlanStats(bars, stockLengthCm);
+  const carrierStats = buildCutPlanStatsForType("carrier", bars, stockLengthCm);
+  const mountingStats = buildCutPlanStatsForType("mounting", bars, stockLengthCm);
+  const udStats = buildCutPlanStatsForType("ud", bars, stockLengthCm);
+
+  return {
+    ...overallStats,
+    bars,
+    carrierStats,
+    mountingStats,
+    udStats,
+  };
+}
+
 export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTANTS): CalcResult {
   constants = withDefaultConstants(constants);
   normalizeRoom(room);
@@ -1326,7 +2125,7 @@ export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTA
   const Y = Number(room.length);
   const W = Math.min(X, Y);
   const L = Math.max(X, Y);
-  const offset = Number(room.offset);
+  const offset = Number(constants.profileEdgeOffsetCm) || DEFAULT_CONSTANTS.profileEdgeOffsetCm;
 
   const bearingCount = countBySpacing(W, room.c, offset);
   const bearingLengthTotal = bearingCount * (L / 100);
