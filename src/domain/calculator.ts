@@ -1725,6 +1725,14 @@ function splitSegmentsForCut(segments: CeilingSegment[], maxLengthCm: number): C
   return segments.flatMap((segment) => splitSegmentForCut(segment, maxLengthCm));
 }
 
+function buildMountingCutSegments(room: Room, result: CalcResult, carrierPositionsCm: number[], maxLengthCm: number): CeilingSegment[] {
+  const segments = room.systemType === "D113"
+    ? buildSegmentsFromBreakpoints(result.W, carrierPositionsCm)
+    : [{ fromCm: 0, toCm: result.W, lengthCm: Number(result.W.toFixed(2)) }];
+
+  return splitSegmentsForCut(segments, maxLengthCm);
+}
+
 export function buildCutOptimizationInput(room: Room, result: CalcResult, constants: CalculatorConstants = DEFAULT_CONSTANTS): CutOptimizationInput {
   constants = withDefaultConstants(constants);
   const cdStockLengthCm = constants.cdLength * 100;
@@ -1749,10 +1757,7 @@ export function buildCutOptimizationInput(room: Room, result: CalcResult, consta
     })),
     mountingRows: mountingRowsXcm.map((_, rowIndex) => ({
       rowIndex,
-      segments: splitSegmentsForCut(
-        [{ fromCm: 0, toCm: result.W, lengthCm: Number(result.W.toFixed(2)) }],
-        cdStockLengthCm,
-      ),
+      segments: buildMountingCutSegments(room, result, layout.carrierRowsYcm, cdStockLengthCm),
     })),
     udProfiles: {
       segments: splitSegmentsForCut([

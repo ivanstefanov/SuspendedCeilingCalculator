@@ -368,7 +368,7 @@ describe("calculator", () => {
   });
 
   it("builds a true global cut plan for a 2 x 2 m room", () => {
-    const room = makeRoom({ width: 200, length: 200, a: 900, b: 600, c: 600 });
+    const room = makeRoom({ systemType: "D112", width: 200, length: 200, a: 900, b: 600, c: 600 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
     const plan = optimizeSuspendedCeilingCuts(input, {
@@ -393,7 +393,7 @@ describe("calculator", () => {
   });
 
   it("builds cut optimization input from the generated layout without changing segment lengths", () => {
-    const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const room = makeRoom({ systemType: "D112", width: 420, length: 900, a: 800, b: 500, c: 500 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
     const expectedMountingRows = buildLinearPositions(result.L, room.b / 10, DEFAULT_CONSTANTS.profileEdgeOffsetCm);
@@ -406,8 +406,17 @@ describe("calculator", () => {
     expect(input.udProfiles.segments.every((segment) => segment.lengthCm <= DEFAULT_CONSTANTS.udLength * 100)).toBe(true);
   });
 
-  it("splits a 420 cm mounting row into balanced cut segments", () => {
+  it("splits D113 mounting rows at carrier rows for one-level connectors", () => {
     const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
+
+    expect(input.mountingRows[0]?.segments.map((segment) => segment.lengthCm)).toEqual([10, 50, 50, 50, 50, 50, 50, 50, 50, 10]);
+    expect(input.mountingRows.every((row) => row.segments.reduce((sum, segment) => sum + segment.lengthCm, 0) === result.W)).toBe(true);
+  });
+
+  it("splits a 420 cm mounting row into balanced cut segments", () => {
+    const room = makeRoom({ systemType: "D112", width: 420, length: 900, a: 800, b: 500, c: 500 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
 
@@ -415,7 +424,7 @@ describe("calculator", () => {
   });
 
   it("keeps a short mounting row as one cut segment", () => {
-    const room = makeRoom({ width: 200, length: 900, a: 800, b: 500, c: 500 });
+    const room = makeRoom({ systemType: "D112", width: 200, length: 900, a: 800, b: 500, c: 500 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
 
@@ -423,7 +432,7 @@ describe("calculator", () => {
   });
 
   it("splits long mounting rows so that no cut segment exceeds stock length", () => {
-    const room = makeRoom({ width: 900, length: 900, a: 800, b: 500, c: 500 });
+    const room = makeRoom({ systemType: "D112", width: 900, length: 900, a: 800, b: 500, c: 500 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
 
@@ -432,7 +441,7 @@ describe("calculator", () => {
   });
 
   it("builds cut optimization input without any piece longer than stock length", () => {
-    const room = makeRoom({ width: 420, length: 900, a: 800, b: 500, c: 500 });
+    const room = makeRoom({ systemType: "D112", width: 420, length: 900, a: 800, b: 500, c: 500 });
     const result = calc(room, DEFAULT_CONSTANTS);
     const input = buildCutOptimizationInput(room, result, DEFAULT_CONSTANTS);
 
