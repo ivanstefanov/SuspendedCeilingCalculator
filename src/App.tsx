@@ -523,7 +523,10 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
   }
 
   if (row.key.includes("connectors") || row.key.includes("cross-points")) {
-    return `${roomText}: ${totals.bearingRows} носещи реда и ${totals.mountingRows} монтажни реда. Връзките са пресичанията между тях: общо ${totals.crossConnectors} бр.${reserve}`;
+    if (materialRooms.length === 1) {
+      return `${roomText}: Връзките са пресичанията между реално генерираните носещи и монтажни CD редове: ${totals.bearingRows} x ${totals.mountingRows} = ${totals.crossConnectors} бр.${reserve}`;
+    }
+    return `${roomText}: Връзките са пресичанията между реално генерираните носещи и монтажни CD редове във всяка стая. Общ сбор: ${totals.crossConnectors} бр.${reserve}`;
   }
 
   if (row.key.includes("hangers")) {
@@ -670,8 +673,27 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
   ];
   markup += `<text x="${x}" y="${y + 18}" class="table-text">${escapeHtml(summary.join("  |  "))}</text>`;
   y += 34;
+  const geometryNote = svgText(
+    x,
+    y + 16,
+    "Разкроят само подрежда вече генерираните конструктивни парчета в покупни пръти. Късите монтажни CD сегменти при D113 са реални парчета между носещи редове/периметър, не грешка в оптимизацията.",
+    "table-text",
+    120,
+    18,
+  );
+  markup += geometryNote.markup;
+  y += geometryNote.height + 12;
 
-  plan.bars.forEach((bar) => {
+  const groups = [
+    { title: "Разкрой CD профили", bars: plan.bars.filter(isCdCutBar) },
+    { title: "Разкрой UD профили", bars: plan.bars.filter(isUdCutBar) },
+  ];
+
+  groups.forEach((group) => {
+    if (!group.bars.length) return;
+    markup += `<text x="${x}" y="${y + 16}" class="table-label">${escapeHtml(group.title)}</text>`;
+    y += 24;
+    group.bars.forEach((bar) => {
     const barH = 42;
     markup += `<g>
       <text x="${x}" y="${y + 15}" class="table-label">${escapeHtml(bar.id)} - ${escapeHtml(getCutPieceLabel(bar.type))} - ${formatNumber(bar.usedCm)} / ${formatNumber(bar.stockLengthCm)} cm</text>
@@ -692,6 +714,7 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
       })() : ""}
     </g>`;
     y += barH;
+    });
   });
 
   return { markup, height: y - startY };
@@ -713,9 +736,13 @@ function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult): string {
   ];
   return `
     <table><tbody>${summaryRows.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>
+    <p class="cut-note">Разкроят само подрежда вече генерираните конструктивни парчета в покупни пръти. Късите монтажни CD сегменти при D113 са реални парчета между носещи редове/периметър, не грешка в оптимизацията.</p>
     <div class="cut-legend"><span class="carrier">Носещ CD</span><span class="mounting">Монтажен CD</span><span class="ud">UD</span><span class="waste">Остатък</span></div>
-    <div class="cut-bar-list">
-      ${plan.bars.map((bar) => `
+    ${[
+      ["Разкрой CD профили", plan.bars.filter(isCdCutBar)] as const,
+      ["Разкрой UD профили", plan.bars.filter(isUdCutBar)] as const,
+    ].map(([title, bars]) => bars.length ? `<h3>${escapeHtml(title)}</h3><div class="cut-bar-list">
+      ${bars.map((bar) => `
         <article class="cut-bar-card">
           <div class="cut-bar-head"><strong>${escapeHtml(bar.id)}</strong><span>${escapeHtml(getCutPieceLabel(bar.type))}</span><small>${formatNumber(bar.usedCm)} / ${formatNumber(bar.stockLengthCm)} cm</small></div>
           <div class="cut-strip">
@@ -723,7 +750,7 @@ function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult): string {
             ${bar.wasteCm > 0 ? `<div class="cut-piece waste" style="width:${(bar.wasteCm / bar.stockLengthCm) * 100}%">${Math.round(bar.wasteCm)}</div>` : ""}
           </div>
         </article>`).join("")}
-    </div>`;
+    </div>` : "").join("")}`;
 }
 
 function buildRoomReportSvg(room: Room, constants: CalculatorConstants): string {
@@ -847,6 +874,7 @@ function buildRoomReportHtml(room: Room, constants: CalculatorConstants): string
     .extension-dimension-line, .extension-mark { stroke: #dc2626; stroke-width: 2; }
     .extension-label { fill: #991b1b; }
     .cut-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 12px; font-size: 12px; }
+    .cut-note { color: #5f6f6a; font-size: 13px; line-height: 1.45; }
     .cut-legend span { padding: 4px 8px; border-radius: 999px; color: #fff; }
     .cut-legend .carrier, .cut-piece.carrier { background: #0f766e; }
     .cut-legend .mounting, .cut-piece.mounting { background: #f59e0b; color: #17211f; }
@@ -1615,8 +1643,8 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
   const totalPurchasedLengthCm = plan.bars.reduce((sum, bar) => sum + bar.stockLengthCm, 0);
   const stockLengthCm = plan.bars[0]?.stockLengthCm ?? Math.max(constants.cdLength, constants.udLength) * 100;
   const summaryText = savedBars > 0
-    ? `С този разкрой за ${room.name} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., защото парчетата от носещи CD, монтажни CD и UD се комбинират по-ефективно в едни и същи пръти.`
-    : `За ${room.name} този разкрой не намалява броя нужни профили спрямо простото броене ${currentProfiles} бр., но подрежда парчетата в реален план за рязане и показва точно какъв остатък остава след разкроя.`;
+    ? `С този разкрой за ${room.name} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., като подрежда CD профилите отделно от UD профилите.`
+    : `За ${room.name} този разкрой не намалява броя нужни профили спрямо простото броене ${currentProfiles} бр., но подрежда CD и UD парчетата в отделни реални планове за рязане и показва остатъците.`;
 
   return (
     <section className="panel cut-plan-panel">
@@ -1666,6 +1694,10 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
           Общата закупена дължина тук е {formatNumber(totalPurchasedLengthCm)} cm, от които {formatNumber(plan.totalUsedCm)} cm
           {" "}се използват, а {formatNumber(plan.totalWasteCm)} cm остават като остатък.
         </small>
+        <small>
+          Разкроят не променя конструктивната геометрия. Носещите CD редове остават възможно най-цели; снадки има само когато редът е по-дълъг от профила.
+          {room.systemType === "D113" ? " Късите монтажни CD сегменти при D113 са реални парчета между носещи редове/периметър." : ""}
+        </small>
       </div>
 
       <div className="cut-plan-legend">
@@ -1682,18 +1714,28 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
       </div>
 
       <div className="cut-bar-groups">
-        <CutBarGroup title="Разкрой по пръти" bars={plan.bars} />
+        <CutBarGroup title="Разкрой CD профили" bars={plan.bars.filter(isCdCutBar)} />
+        <CutBarGroup title="Разкрой UD профили" bars={plan.bars.filter(isUdCutBar)} />
       </div>
     </section>
   );
 }
 
 function getCutPieceLabel(type: CutBar["type"] | "waste"): string {
+  if (type === "cd") return "CD профил";
   if (type === "carrier") return "носещ CD";
   if (type === "mounting") return "монтажен CD";
   if (type === "ud") return "UD";
   if (type === "mixed") return "смесен прът";
   return "остатък";
+}
+
+function isCdCutBar(bar: CutBar): boolean {
+  return bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "carrier" || piece.type === "mounting");
+}
+
+function isUdCutBar(bar: CutBar): boolean {
+  return bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "ud");
 }
 
 function TypeStatCard({ label, stats }: { label: string; stats: CutOptimizationResult["carrierStats"] }) {

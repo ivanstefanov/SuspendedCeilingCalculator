@@ -168,7 +168,7 @@ export interface CutBarSegment {
   endCm: number;
 }
 
-export type CutBarType = CutPieceType | "mixed";
+export type CutBarType = CutPieceType | "cd" | "mixed";
 
 export interface CutBar {
   id: string;
@@ -203,6 +203,7 @@ export interface CutOptimizationConfig {
   minReusableOffcutCm?: number;
   perTypeStockLengthsCm?: Partial<Record<CutPieceType, number>>;
   includeKerfInFitCheck?: boolean;
+  strictProfileSeparation?: boolean;
 }
 
 export type ValidationSeverity = "error" | "warning";
@@ -1805,9 +1806,16 @@ function finalizeCutBar(
   const estimatedKerfLossCm = Number((Math.max(0, bar.pieces.length - 1) * kerfCm).toFixed(2));
   const usedCm = Number((pieceLengthCm + (includeKerfInFitCheck ? estimatedKerfLossCm : 0)).toFixed(2));
   const uniqueTypes = [...new Set(bar.pieces.map((piece) => piece.type))];
+  const hasCd = bar.pieces.some((piece) => piece.type === "carrier" || piece.type === "mounting");
+  const hasUd = bar.pieces.some((piece) => piece.type === "ud");
+  const type = hasCd && hasUd
+    ? "mixed"
+    : hasCd && uniqueTypes.length > 1
+      ? "cd"
+      : uniqueTypes[0] ?? "mixed";
   return {
     ...bar,
-    type: uniqueTypes.length === 1 ? uniqueTypes[0] ?? "mixed" : "mixed",
+    type,
     segments,
     usedCm,
     wasteCm: Number((bar.stockLengthCm - usedCm).toFixed(2)),
@@ -2042,20 +2050,47 @@ function tryRepackBarSubset(
   return best;
 }
 
-function buildCutPlanStats(bars: CutBar[], stockLengthCm: number): CutPlanStats {
+function buildCutPlanStats(bars: CutBar[], stockLengthCm?: number): CutPlanStats {
   const totalBars = bars.length;
   const totalUsedCm = Number(bars.reduce((sum, bar) => sum + bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
-  const totalPurchasedCm = totalBars * stockLengthCm;
+  const totalPurchasedCm = stockLengthCm == null
+    ? bars.reduce((sum, bar) => sum + bar.stockLengthCm, 0)
+    : totalBars * stockLengthCm;
   const totalWasteCm = Number((totalPurchasedCm - totalUsedCm).toFixed(2));
-  const efficiencyPercent = totalBars ? Number(((totalUsedCm / (totalBars * stockLengthCm)) * 100).toFixed(2)) : 0;
+  const efficiencyPercent = totalPurchasedCm > 0 ? Number(((totalUsedCm / totalPurchasedCm) * 100).toFixed(2)) : 0;
   const totalPieceLength = Number(bars.reduce((sum, bar) => sum + bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
   const estimatedKerfLossCm = Number(bars.reduce((sum, bar) => sum + bar.estimatedKerfLossCm, 0).toFixed(2));
-  const lowerBoundBars = stockLengthCm > 0 ? Math.ceil(totalPieceLength / stockLengthCm) : 0;
+  const lowerBoundBars = stockLengthCm && stockLengthCm > 0
+    ? Math.ceil(totalPieceLength / stockLengthCm)
+    : Math.ceil(totalPieceLength / Math.max(...bars.map((bar) => bar.stockLengthCm), 1));
   return { totalBars, totalUsedCm, totalWasteCm, efficiencyPercent, lowerBoundBars, estimatedKerfLossCm };
 }
 
 function resolveSharedCutStockLength(config: Required<CutOptimizationConfig>): number {
   return config.stockLengthCm;
+}
+
+function getProfileGroupStockLength(pieces: CutPiece[], config: Required<CutOptimizationConfig>): number {
+  const firstType = pieces[0]?.type;
+  if (!firstType) return config.stockLengthCm;
+  if (firstType === "ud") return config.perTypeStockLengthsCm.ud ?? config.stockLengthCm;
+  return config.perTypeStockLengthsCm.carrier ?? config.perTypeStockLengthsCm.mounting ?? config.stockLengthCm;
+}
+
+function optimizePieceGroup(pieces: CutPiece[], stockLengthCm: number, config: Required<CutOptimizationConfig>, idPrefix: string): CutBar[] {
+  const invalidPiece = pieces.find((piece) => piece.lengthCm > stockLengthCm + 0.0001);
+  if (invalidPiece) {
+    throw new Error(`Парче ${invalidPiece.id} (${invalidPiece.lengthCm} cm) е по-дълго от наличния прът ${stockLengthCm} cm.`);
+  }
+
+  const packed = packPiecesFfd(pieces, stockLengthCm, config.kerfCm, config.includeKerfInFitCheck);
+  const optimized = optimizeBarsWithOffcuts(packed, config.kerfCm, config.minReusableOffcutCm, config.includeKerfInFitCheck);
+  return optimized.map((bar, index) => finalizeCutBar({
+    id: `${idPrefix}-${index + 1}`,
+    type: bar.type,
+    stockLengthCm: bar.stockLengthCm,
+    pieces: bar.pieces,
+  }, config.kerfCm, config.includeKerfInFitCheck));
 }
 
 function buildCutPlanStatsForType(type: CutPieceType, bars: CutBar[], stockLengthCm: number): CutPlanStats {
@@ -2064,20 +2099,9 @@ function buildCutPlanStatsForType(type: CutPieceType, bars: CutBar[], stockLengt
   const totalPieceLength = Number(relevantBars.reduce((sum, bar) => sum + bar.pieces
     .filter((piece) => piece.type === type)
     .reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0), 0).toFixed(2));
-  const allocations = relevantBars.reduce((sum, bar) => {
-    const barPieceLength = bar.pieces.reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
-    const relevantPieceLength = bar.pieces
-      .filter((piece) => piece.type === type)
-      .reduce((pieceSum, piece) => pieceSum + piece.lengthCm, 0);
-    const share = barPieceLength > 0 ? relevantPieceLength / barPieceLength : 0;
-    return {
-      usedCm: sum.usedCm + bar.usedCm * share,
-      wasteCm: sum.wasteCm + bar.wasteCm * share,
-    };
-  }, { usedCm: 0, wasteCm: 0 });
   const totalUsedCm = totalPieceLength;
-  const totalWasteCm = Number(allocations.wasteCm.toFixed(2));
-  const capacityCm = totalUsedCm + totalWasteCm;
+  const capacityCm = relevantBars.reduce((sum, bar) => sum + bar.stockLengthCm, 0);
+  const totalWasteCm = Number((capacityCm - totalUsedCm).toFixed(2));
   const efficiencyPercent = capacityCm > 0 ? Number(((totalUsedCm / capacityCm) * 100).toFixed(2)) : 0;
   const lowerBoundBars = stockLengthCm > 0 ? Math.ceil(totalPieceLength / stockLengthCm) : 0;
   const estimatedKerfLossCm = Number(relevantBars.reduce((sum, bar) => {
@@ -2098,21 +2122,31 @@ export function optimizeSuspendedCeilingCuts(input: CutOptimizationInput, config
     minReusableOffcutCm: config.minReusableOffcutCm ?? 20,
     perTypeStockLengthsCm: config.perTypeStockLengthsCm ?? {},
     includeKerfInFitCheck: config.includeKerfInFitCheck ?? false,
+    strictProfileSeparation: config.strictProfileSeparation ?? true,
   };
 
   const pieces = buildCutPieces(input);
   const stockLengthCm = resolveSharedCutStockLength(resolvedConfig);
-  const invalidPiece = pieces.find((piece) => piece.lengthCm > stockLengthCm + 0.0001);
-  if (invalidPiece) {
-    throw new Error(`Парче ${invalidPiece.id} (${invalidPiece.lengthCm} cm) е по-дълго от наличния прът ${stockLengthCm} cm.`);
-  }
-
-  const packed = packPiecesFfd(pieces, stockLengthCm, resolvedConfig.kerfCm, resolvedConfig.includeKerfInFitCheck);
-  const bars = optimizeBarsWithOffcuts(packed, resolvedConfig.kerfCm, resolvedConfig.minReusableOffcutCm, resolvedConfig.includeKerfInFitCheck);
-  const overallStats = buildCutPlanStats(bars, stockLengthCm);
-  const carrierStats = buildCutPlanStatsForType("carrier", bars, stockLengthCm);
-  const mountingStats = buildCutPlanStatsForType("mounting", bars, stockLengthCm);
-  const udStats = buildCutPlanStatsForType("ud", bars, stockLengthCm);
+  const bars = resolvedConfig.strictProfileSeparation
+    ? [
+      ...optimizePieceGroup(
+        pieces.filter((piece) => piece.type === "carrier" || piece.type === "mounting"),
+        getProfileGroupStockLength(pieces.filter((piece) => piece.type === "carrier" || piece.type === "mounting"), resolvedConfig),
+        resolvedConfig,
+        "cd-bar",
+      ),
+      ...optimizePieceGroup(
+        pieces.filter((piece) => piece.type === "ud"),
+        getProfileGroupStockLength(pieces.filter((piece) => piece.type === "ud"), resolvedConfig),
+        resolvedConfig,
+        "ud-bar",
+      ),
+    ]
+    : optimizePieceGroup(pieces, stockLengthCm, resolvedConfig, "bar");
+  const overallStats = buildCutPlanStats(bars);
+  const carrierStats = buildCutPlanStatsForType("carrier", bars, resolvedConfig.perTypeStockLengthsCm.carrier ?? stockLengthCm);
+  const mountingStats = buildCutPlanStatsForType("mounting", bars, resolvedConfig.perTypeStockLengthsCm.mounting ?? stockLengthCm);
+  const udStats = buildCutPlanStatsForType("ud", bars, resolvedConfig.perTypeStockLengthsCm.ud ?? stockLengthCm);
 
   return {
     ...overallStats,
@@ -2132,11 +2166,13 @@ export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTA
   const L = Math.max(X, Y);
   const offset = Number(constants.profileEdgeOffsetCm) || DEFAULT_CONSTANTS.profileEdgeOffsetCm;
 
-  const bearingCount = countBySpacing(W, room.c, offset);
+  const actualCarrierRows = buildLinearPositions(W, room.c / 10, offset);
+  const actualMountingRows = buildLinearPositions(L, room.b / 10, offset);
+  const bearingCount = actualCarrierRows.length;
   const bearingLengthTotal = bearingCount * (L / 100);
   const bearingProfiles = bearingCount * Math.ceil((L / 100) / constants.cdLength);
 
-  const mountingCount = countBySpacing(L, room.b, offset);
+  const mountingCount = actualMountingRows.length;
   const mountingLengthTotal = mountingCount * (W / 100);
   const mountingProfiles = mountingCount * Math.ceil((W / 100) / constants.cdLength);
 
