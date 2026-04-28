@@ -158,6 +158,8 @@ export interface CutPiece {
   id: string;
   type: CutPieceType;
   lengthCm: number;
+  roomId?: string;
+  roomName?: string;
 }
 
 export interface CutBarSegment {
@@ -240,6 +242,8 @@ export interface MaterialTakeoffItem {
   unit: "бр." | "m" | "m2" | "kg";
   note: string;
   source: QuantitySource;
+  optimizedQuantity?: number;
+  optimizedExplanation?: string;
 }
 
 export interface UdAnchoringRule {
@@ -1790,6 +1794,20 @@ function buildCutPieces(input: CutOptimizationInput): CutPiece[] {
   return [...carrierPieces, ...mountingPieces, ...udPieces];
 }
 
+export function buildRoomCutPieces(
+  room: Room,
+  result: CalcResult,
+  constants: CalculatorConstants = DEFAULT_CONSTANTS,
+): CutPiece[] {
+  const pieces = buildCutPieces(buildCutOptimizationInput(room, result, constants));
+  return pieces.map((piece) => ({
+    ...piece,
+    id: `${room.id}-${piece.id}`,
+    roomId: room.id,
+    roomName: room.name,
+  }));
+}
+
 function finalizeCutBar(
   bar: Omit<CutBar, "segments" | "usedCm" | "wasteCm" | "estimatedKerfLossCm">,
   kerfCm: number,
@@ -2157,6 +2175,58 @@ export function optimizeSuspendedCeilingCuts(input: CutOptimizationInput, config
   };
 }
 
+export function optimizeAllRoomsSuspendedCeilingCuts(
+  rooms: Room[],
+  constants: CalculatorConstants = DEFAULT_CONSTANTS,
+  config: CutOptimizationConfig = {},
+): CutOptimizationResult {
+  constants = withDefaultConstants(constants);
+  const resolvedConfig: Required<CutOptimizationConfig> = {
+    stockLengthCm: config.stockLengthCm ?? Math.max(constants.cdLength, constants.udLength) * 100,
+    kerfCm: config.kerfCm ?? 0.3,
+    minReusableOffcutCm: config.minReusableOffcutCm ?? 20,
+    perTypeStockLengthsCm: {
+      carrier: constants.cdLength * 100,
+      mounting: constants.cdLength * 100,
+      ud: constants.udLength * 100,
+      ...config.perTypeStockLengthsCm,
+    },
+    includeKerfInFitCheck: config.includeKerfInFitCheck ?? false,
+    strictProfileSeparation: true,
+  };
+
+  const pieces = rooms.flatMap((room) => buildRoomCutPieces(room, calc(room, constants), constants));
+  const cdPieces = pieces.filter((piece) => piece.type === "carrier" || piece.type === "mounting");
+  const udPieces = pieces.filter((piece) => piece.type === "ud");
+  const stockLengthCm = resolveSharedCutStockLength(resolvedConfig);
+  const bars = [
+    ...optimizePieceGroup(
+      cdPieces,
+      getProfileGroupStockLength(cdPieces, resolvedConfig),
+      resolvedConfig,
+      "global-cd-bar",
+    ),
+    ...optimizePieceGroup(
+      udPieces,
+      getProfileGroupStockLength(udPieces, resolvedConfig),
+      resolvedConfig,
+      "global-ud-bar",
+    ),
+  ];
+  const overallStats = buildCutPlanStats(bars);
+  const carrierStats = buildCutPlanStatsForType("carrier", bars, resolvedConfig.perTypeStockLengthsCm.carrier ?? stockLengthCm);
+  const mountingStats = buildCutPlanStatsForType("mounting", bars, resolvedConfig.perTypeStockLengthsCm.mounting ?? stockLengthCm);
+  const udStats = buildCutPlanStatsForType("ud", bars, resolvedConfig.perTypeStockLengthsCm.ud ?? stockLengthCm);
+
+  return {
+    ...overallStats,
+    bars,
+    carrierStats,
+    mountingStats,
+    udStats,
+  };
+}
+
 export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTANTS): CalcResult {
   constants = withDefaultConstants(constants);
   normalizeRoom(room);
@@ -2272,7 +2342,7 @@ function applyReserve(value: number, unit: MaterialTakeoffItem["unit"], constant
 
 function addMaterial(
   map: Map<string, MaterialTakeoffItem>,
-  item: Omit<MaterialTakeoffItem, "quantity"> & { quantity: number },
+  item: Omit<MaterialTakeoffItem, "quantity" | "optimizedQuantity" | "optimizedExplanation"> & { quantity: number },
 ): void {
   const existing = map.get(item.key);
   if (!existing) {
@@ -2285,14 +2355,106 @@ function addMaterial(
     : existing.quantity + item.quantity;
 }
 
+function getMaterialRoomsForKey(key: string, rooms: Room[]): Room[] {
+  const prefix = key.split("-")[0].toUpperCase();
+  return prefix === "CUSTOM"
+    ? rooms.filter((room) => room.systemType === "CUSTOM")
+    : rooms.filter((room) => room.systemType === prefix);
+}
+
+function isOptimizedCdMaterial(item: MaterialTakeoffItem): boolean {
+  return item.unit === "бр." && item.key.includes("cd-60-27") && !item.key.includes("connectors");
+}
+
+function isOptimizedUdMaterial(item: MaterialTakeoffItem): boolean {
+  return item.unit === "бр." && item.key.includes("ud-28-27");
+}
+
+interface OptimizedProfileRoomData {
+  room: Room;
+  result: CalcResult;
+  input?: CutOptimizationInput;
+}
+
+function getOptimizedProfileRoomData(sourceRoom: Room, constants: CalculatorConstants, cache: Map<string, OptimizedProfileRoomData>): OptimizedProfileRoomData {
+  const existing = cache.get(sourceRoom.id);
+  if (existing) return existing;
+  const room = { ...sourceRoom, overrides: { ...sourceRoom.overrides } };
+  const data = { room, result: calc(room, constants) };
+  cache.set(room.id, data);
+  return data;
+}
+
+function getOptimizedProfileInput(data: OptimizedProfileRoomData, constants: CalculatorConstants): CutOptimizationInput {
+  if (!data.input) data.input = buildCutOptimizationInput(data.room, data.result, constants);
+  return data.input;
+}
+
+function countOptimizedProfileBars(
+  item: MaterialTakeoffItem,
+  rooms: Room[],
+  constants: CalculatorConstants,
+  cache: Map<string, OptimizedProfileRoomData>,
+): number | undefined {
+  if (!isOptimizedCdMaterial(item) && !isOptimizedUdMaterial(item)) return undefined;
+  const materialRooms = getMaterialRoomsForKey(item.key, rooms);
+  if (!materialRooms.length) return undefined;
+
+  let rowIndex = 0;
+  const input: CutOptimizationInput = {
+    carrierRows: [],
+    mountingRows: [],
+    udProfiles: { segments: [] },
+  };
+
+  materialRooms.forEach((sourceRoom) => {
+    const data = getOptimizedProfileRoomData(sourceRoom, constants, cache);
+    const roomInput = getOptimizedProfileInput(data, constants);
+    if (isOptimizedCdMaterial(item)) {
+      if (data.room.systemType !== "D116") {
+        input.carrierRows.push(...roomInput.carrierRows.map((row) => ({ ...row, rowIndex: rowIndex++ })));
+      }
+      input.mountingRows.push(...roomInput.mountingRows.map((row) => ({ ...row, rowIndex: rowIndex++ })));
+    } else {
+      input.udProfiles.segments.push(...roomInput.udProfiles.segments);
+    }
+  });
+
+  const plan = optimizeSuspendedCeilingCuts(input, {
+    stockLengthCm: Math.max(constants.cdLength, constants.udLength) * 100,
+    kerfCm: 0.3,
+    minReusableOffcutCm: 20,
+    perTypeStockLengthsCm: {
+      carrier: constants.cdLength * 100,
+      mounting: constants.cdLength * 100,
+      ud: constants.udLength * 100,
+    },
+  });
+  return isOptimizedCdMaterial(item)
+    ? plan.bars.filter((bar) => bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "carrier" || piece.type === "mounting")).length
+    : plan.bars.filter((bar) => bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "ud")).length;
+}
+
+function getOptimizedProfileExplanation(item: MaterialTakeoffItem): string | undefined {
+  if (isOptimizedCdMaterial(item)) {
+    return "Стандартната бройка е изчислена чрез закръгляне на общата дължина към цели CD профили. Бройката след разкрой отчита оптимизирано комбиниране на носещи и монтажни CD парчета, без смесване с UD профили.";
+  }
+  if (isOptimizedUdMaterial(item)) {
+    return "Стандартната бройка е изчислена чрез закръгляне на общия периметър към цели UD профили. Бройката след разкрой отчита оптимизирано използване на остатъците от UD профили по периферията.";
+  }
+  return undefined;
+}
+
 export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstants = DEFAULT_CONSTANTS): MaterialTakeoffItem[] {
   constants = withDefaultConstants(constants);
   const map = new Map<string, MaterialTakeoffItem>();
   const systems = new Set<SystemType>();
+  const optimizedProfileCache = new Map<string, OptimizedProfileRoomData>();
 
   rooms.forEach((sourceRoom) => {
     const room = { ...sourceRoom, overrides: { ...sourceRoom.overrides } };
     const result = calc(room, constants);
+    optimizedProfileCache.set(room.id, { room, result });
     systems.add(room.systemType);
     const system = room.systemType.toLowerCase();
     const udRule = getUdAnchoringRule(room);
@@ -2303,7 +2465,7 @@ export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstan
     const uaExtensions = countExtensions(result.bearingCount, result.L, constants.uaLength);
     const mountingExtensions = countExtensions(result.mountingCount, result.W, constants.cdLength);
 
-    const add = (item: Omit<MaterialTakeoffItem, "quantity"> & { quantity: number }) => addMaterial(map, item);
+    const add = (item: Omit<MaterialTakeoffItem, "quantity" | "optimizedQuantity" | "optimizedExplanation"> & { quantity: number }) => addMaterial(map, item);
 
     if (room.systemType === "D111") {
       add({
@@ -2572,11 +2734,16 @@ export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstan
 
   const singleSystemPrefix = systems.size === 1 ? `${Array.from(systems)[0]} ` : "";
 
-  return Array.from(map.values()).map((item) => ({
-    ...item,
-    label: singleSystemPrefix && item.label.startsWith(singleSystemPrefix)
-      ? item.label.slice(singleSystemPrefix.length)
-      : item.label,
-    quantity: applyReserve(item.quantity, item.unit, constants),
-  }));
+  return Array.from(map.values()).map((item) => {
+    const optimizedQuantity = countOptimizedProfileBars(item, rooms, constants, optimizedProfileCache);
+    return {
+      ...item,
+      label: singleSystemPrefix && item.label.startsWith(singleSystemPrefix)
+        ? item.label.slice(singleSystemPrefix.length)
+        : item.label,
+      quantity: applyReserve(item.quantity, item.unit, constants),
+      optimizedQuantity,
+      optimizedExplanation: optimizedQuantity == null ? undefined : getOptimizedProfileExplanation(item),
+    };
+  });
 }

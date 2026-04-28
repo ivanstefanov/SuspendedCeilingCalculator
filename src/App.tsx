@@ -1,4 +1,4 @@
-import { ChangeEvent, ReactNode, useState } from "react";
+import { ChangeEvent, ReactNode, useMemo, useState } from "react";
 import {
   CalcResult,
   CalculatorConstants,
@@ -43,6 +43,7 @@ import {
   getUdAnchoringRule,
   getValidCValues,
   getValidationWarnings,
+  optimizeAllRoomsSuspendedCeilingCuts,
   optimizeSuspendedCeilingCuts,
   estimateLoadKgPerM2,
   syncSpacingFromKnaufTable,
@@ -85,10 +86,12 @@ type MaterialPrices = Record<string, number>;
 type CutPlanState = { plan: CutOptimizationResult; error: null } | { plan: null; error: string };
 type AppSection = "room" | "settings" | "materials" | "help";
 type RoomWorkspacePanel = "visual" | "cut";
-type ExportContentType = "room-cards" | "table";
+type CutOptimizationMode = "room" | "global";
+type ExportContentType = "room-cards" | "table" | "installation-guide";
 type RoomCardExportFileType = "pdf" | "png" | "html";
+type InstallationGuideExportFileType = "pdf" | "html";
 type TableExportFileType = "excel" | "json" | "html";
-type ExportFileType = RoomCardExportFileType | TableExportFileType;
+type ExportFileType = RoomCardExportFileType | InstallationGuideExportFileType | TableExportFileType;
 
 interface CatalogPriceEstimate {
   price: number;
@@ -317,6 +320,36 @@ function buildSafeCutPlan(room: Room, result: CalcResult, constants: CalculatorC
     return {
       plan: null,
       error: error instanceof Error ? error.message : "Неуспешен разкрой.",
+    };
+  }
+}
+
+function buildSafeGlobalCutPlan(rooms: Room[], constants: CalculatorConstants): CutPlanState {
+  if (!rooms.length) {
+    return {
+      plan: null,
+      error: "Няма запазени стаи за общ разкрой.",
+    };
+  }
+
+  try {
+    return {
+      plan: optimizeAllRoomsSuspendedCeilingCuts(rooms, constants, {
+        stockLengthCm: Math.max(constants.cdLength, constants.udLength) * 100,
+        kerfCm: 0.3,
+        minReusableOffcutCm: 20,
+        perTypeStockLengthsCm: {
+          carrier: constants.cdLength * 100,
+          mounting: constants.cdLength * 100,
+          ud: constants.udLength * 100,
+        },
+      }),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      plan: null,
+      error: error instanceof Error ? error.message : "Неуспешен общ разкрой.",
     };
   }
 }
@@ -589,6 +622,21 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
   return `${roomText}: количеството е изчислено от геометрията на запазените стаи и избраните настройки.${reserve}`;
 }
 
+function formatMaterialQuantity(row: MaterialTakeoffItem): string {
+  const base = `${formatNumber(row.quantity)} ${row.unit}`;
+  if (row.optimizedQuantity == null) return base;
+  return `${base} (след разкрой: ${formatNumber(row.optimizedQuantity)} ${row.unit})`;
+}
+
+function buildMaterialExplanation(row: MaterialTakeoffItem, rooms: Room[], constants: CalculatorConstants): string {
+  const parts = [buildMaterialCalculationInfo(row, rooms, constants)];
+  if (row.optimizedExplanation) parts.push(row.optimizedExplanation);
+  if (row.optimizedQuantity != null && row.optimizedQuantity > row.quantity) {
+    parts.push("Оптимизираният разкрой изисква повече профили заради реалните дължини на отделните парчета.");
+  }
+  return parts.join(" ");
+}
+
 function renderSvgKeyValueRows(rows: Array<[string, unknown]>, startY: number): { markup: string; height: number } {
   const x = 48;
   const labelW = 210;
@@ -606,11 +654,11 @@ function renderSvgKeyValueRows(rows: Array<[string, unknown]>, startY: number): 
   return { markup, height: rows.length * rowH };
 }
 
-function renderSvgMaterialsRows(rows: MaterialTakeoffItem[], room: Room, constants: CalculatorConstants, startY: number): { markup: string; height: number } {
+function renderSvgMaterialsRows(rows: MaterialTakeoffItem[], rooms: Room[], constants: CalculatorConstants, startY: number): { markup: string; height: number } {
   const x = 48;
   const nameW = 280;
-  const qtyW = 115;
-  const noteW = 605;
+  const qtyW = 205;
+  const noteW = 515;
   const headerH = 32;
   let y = startY;
   let markup = `<g>
@@ -624,9 +672,9 @@ function renderSvgMaterialsRows(rows: MaterialTakeoffItem[], room: Room, constan
   y += headerH;
 
   rows.forEach((row) => {
-    const explanation = buildMaterialCalculationInfo(row, [room], constants);
+    const explanation = buildMaterialExplanation(row, rooms, constants);
     const name = svgText(x + 10, y + 20, row.label, "table-text", 32, 16);
-    const qty = svgText(x + nameW + 10, y + 20, `${row.quantity} ${row.unit}`, "table-text", 14, 16);
+    const qty = svgText(x + nameW + 10, y + 20, formatMaterialQuantity(row), "table-text", 22, 16);
     const note = svgText(x + nameW + qtyW + 10, y + 20, explanation, "table-text", 76, 16);
     const rowH = Math.max(34, name.height, qty.height, note.height) + 14;
     markup += `<g>
@@ -641,15 +689,22 @@ function renderSvgMaterialsRows(rows: MaterialTakeoffItem[], room: Room, constan
   return { markup, height: y - startY };
 }
 
-function renderHtmlMaterialsRows(rows: MaterialTakeoffItem[], room: Room, constants: CalculatorConstants): string {
+function renderHtmlMaterialsRows(rows: MaterialTakeoffItem[], rooms: Room[], constants: CalculatorConstants): string {
   return rows.map((row) => `<tr>
     <td>${escapeHtml(row.label)}</td>
-    <td>${escapeHtml(row.quantity)} ${escapeHtml(row.unit)}</td>
-    <td>${escapeHtml(buildMaterialCalculationInfo(row, [room], constants))}</td>
+    <td>${escapeHtml(formatMaterialQuantity(row))}</td>
+    <td>${escapeHtml(buildMaterialExplanation(row, rooms, constants))}</td>
   </tr>`).join("");
 }
 
-function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: number): { markup: string; height: number } {
+function getCutSegmentDisplayLabel(bar: CutBar, pieceId: string, lengthCm: number, showRoomNames: boolean): string {
+  const piece = bar.pieces.find((item) => item.id === pieceId);
+  return showRoomNames && piece?.roomName
+    ? `${Math.round(lengthCm)} cm · ${piece.roomName}`
+    : String(Math.round(lengthCm));
+}
+
+function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: number, showRoomNames = false): { markup: string; height: number } {
   const x = 48;
   const width = 1000;
   if (cutPlan.error || !cutPlan.plan) {
@@ -701,10 +756,10 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
       ${bar.segments.map((segment) => {
         const sx = x + (segment.startCm / bar.stockLengthCm) * width;
         const sw = Math.max(1, (segment.lengthCm / bar.stockLengthCm) * width);
-        const label = Math.round(segment.lengthCm);
+        const label = getCutSegmentDisplayLabel(bar, segment.pieceId, segment.lengthCm, showRoomNames);
         return `<g>
           <rect x="${sx}" y="${y + 21}" width="${sw}" height="18" class="cut-${segment.type}" />
-          ${sw >= 28 ? `<text x="${sx + sw / 2}" y="${y + 35}" class="cut-piece-label" text-anchor="middle">${label}</text>` : ""}
+          ${sw >= (showRoomNames ? 90 : 28) ? `<text x="${sx + sw / 2}" y="${y + 35}" class="cut-piece-label" text-anchor="middle">${escapeHtml(label)}</text>` : ""}
         </g>`;
       }).join("")}
       ${bar.wasteCm > 0 ? (() => {
@@ -720,7 +775,7 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
   return { markup, height: y - startY };
 }
 
-function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult): string {
+function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult, showRoomNames = false): string {
   if (cutPlan.error || !cutPlan.plan) {
     return `<p class="warning">Разкроят не може да се изчисли: ${escapeHtml(cutPlan.error || "неизвестна грешка")}.</p>`;
   }
@@ -746,7 +801,10 @@ function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult): string {
         <article class="cut-bar-card">
           <div class="cut-bar-head"><strong>${escapeHtml(bar.id)}</strong><span>${escapeHtml(getCutPieceLabel(bar.type))}</span><small>${formatNumber(bar.usedCm)} / ${formatNumber(bar.stockLengthCm)} cm</small></div>
           <div class="cut-strip">
-            ${bar.segments.map((segment) => `<div class="cut-piece ${segment.type}" style="width:${(segment.lengthCm / bar.stockLengthCm) * 100}%">${Math.round(segment.lengthCm)}</div>`).join("")}
+            ${bar.segments.map((segment) => {
+              const label = getCutSegmentDisplayLabel(bar, segment.pieceId, segment.lengthCm, showRoomNames);
+              return `<div class="cut-piece ${segment.type}" title="${escapeHtml(label)}" style="width:${(segment.lengthCm / bar.stockLengthCm) * 100}%">${escapeHtml(label)}</div>`;
+            }).join("")}
             ${bar.wasteCm > 0 ? `<div class="cut-piece waste" style="width:${(bar.wasteCm / bar.stockLengthCm) * 100}%">${Math.round(bar.wasteCm)}</div>` : ""}
           </div>
         </article>`).join("")}
@@ -785,7 +843,7 @@ function buildRoomReportSvg(room: Room, constants: CalculatorConstants): string 
 
   body += `<text x="48" y="${y}" class="section-title">Необходими материали</text>`;
   y += 14;
-  const materialRows = renderSvgMaterialsRows(materials, safeRoom, constants, y);
+  const materialRows = renderSvgMaterialsRows(materials, [safeRoom], constants, y);
   body += materialRows.markup;
   y += materialRows.height + 34;
 
@@ -832,6 +890,106 @@ function buildRoomReportSvg(room: Room, constants: CalculatorConstants): string 
   </svg>`;
 }
 
+function buildAggregateCutResult(rooms: Room[], constants: CalculatorConstants): CalcResult {
+  return rooms.reduce((total, sourceRoom) => {
+    const result = calc(cloneRoom(sourceRoom), constants);
+    total.W += result.W;
+    total.L += result.L;
+    total.bearingCount += result.bearingCount;
+    total.mountingCount += result.mountingCount;
+    total.bearingLengthTotal += result.bearingLengthTotal;
+    total.mountingLengthTotal += result.mountingLengthTotal;
+    total.bearingProfiles += result.bearingProfiles;
+    total.mountingProfiles += result.mountingProfiles;
+    total.cdTotalLength += result.cdTotalLength;
+    total.cdTotalProfiles += result.cdTotalProfiles;
+    total.crossConnectors += result.crossConnectors;
+    total.hangersPerBearing += result.hangersPerBearing;
+    total.hangersTotal += result.hangersTotal;
+    total.udTotalLength += result.udTotalLength;
+    total.udProfiles += result.udProfiles;
+    total.anchorsUd += result.anchorsUd;
+    total.anchorsHangers += result.anchorsHangers;
+    total.anchorsTotal += result.anchorsTotal;
+    total.metalScrews += result.metalScrews;
+    total.drywallScrews += result.drywallScrews;
+    total.extensionsTotal += result.extensionsTotal;
+    return total;
+  }, {
+    W: 0,
+    L: 0,
+    bearingCount: 0,
+    mountingCount: 0,
+    bearingLengthTotal: 0,
+    mountingLengthTotal: 0,
+    bearingProfiles: 0,
+    mountingProfiles: 0,
+    cdTotalLength: 0,
+    cdTotalProfiles: 0,
+    crossConnectors: 0,
+    hangersPerBearing: 0,
+    hangersTotal: 0,
+    udTotalLength: 0,
+    udProfiles: 0,
+    anchorsUd: 0,
+    anchorsHangers: 0,
+    anchorsTotal: 0,
+    metalScrews: 0,
+    drywallScrews: 0,
+    extensionsTotal: 0,
+  });
+}
+
+function buildGlobalCutReportSvg(rooms: Room[], constants: CalculatorConstants): string {
+  const cutPlan = buildSafeGlobalCutPlan(rooms, constants);
+  const result = buildAggregateCutResult(rooms, constants);
+  const materials = buildMaterialTakeoff(rooms, constants);
+  const generatedAt = new Date().toLocaleString("bg-BG");
+  const pageW = 1100;
+  let y = 42;
+  let body = "";
+
+  body += `<text x="48" y="${y}" class="title">Общ разкрой</text>`;
+  y += 28;
+  body += `<text x="48" y="${y}" class="meta">Knauf D11 calculator · ${escapeHtml(generatedAt)} · ${rooms.length} стаи</text>`;
+  y += 34;
+
+  body += `<text x="48" y="${y}" class="section-title">Общо материали</text>`;
+  y += 14;
+  const materialRows = renderSvgMaterialsRows(materials, rooms, constants, y);
+  body += materialRows.markup;
+  y += materialRows.height + 34;
+
+  body += `<text x="48" y="${y}" class="section-title">Общ разкрой за всички стаи</text>`;
+  y += 16;
+  const cut = renderSvgCutPlan(cutPlan, result, y, true);
+  body += cut.markup;
+  y += cut.height + 48;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageW}" height="${y}" viewBox="0 0 ${pageW} ${y}">
+    <style>
+      .page-bg { fill: #ffffff; }
+      .title { font: 700 28px Arial, sans-serif; fill: #17211f; }
+      .meta { font: 13px Arial, sans-serif; fill: #5f6f6a; }
+      .section-title { font: 700 18px Arial, sans-serif; fill: #0f766e; }
+      .table-head { fill: #edf5f1; stroke: #d7e0e3; }
+      .table-cell { fill: #ffffff; stroke: #d7e0e3; }
+      .table-label { font: 700 13px Arial, sans-serif; fill: #34413c; }
+      .table-text { font: 13px Arial, sans-serif; fill: #17211f; }
+      .cut-bg, .cut-waste { fill: #d1d5db; }
+      .cut-carrier { fill: #0f766e; }
+      .cut-mounting { fill: #f59e0b; }
+      .cut-ud { fill: #2563eb; }
+      .cut-piece-label { font: 700 11px Arial, sans-serif; fill: #ffffff; }
+      .cut-mounting + .cut-piece-label, .cut-waste-label { font: 700 11px Arial, sans-serif; fill: #374151; }
+      .warning-box { fill: #fff4f4; stroke: #f3c5c5; }
+      .warning-text { font: 13px Arial, sans-serif; fill: #991b1b; }
+    </style>
+    <rect x="0" y="0" width="${pageW}" height="${y}" class="page-bg" />
+    ${body}
+  </svg>`;
+}
+
 function buildRoomReportHtml(room: Room, constants: CalculatorConstants): string {
   const safeRoom = cloneRoom(room);
   const result = calc(safeRoom, constants);
@@ -856,13 +1014,14 @@ function buildRoomReportHtml(room: Room, constants: CalculatorConstants): string
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(safeRoom.name)} - Knauf calculator</title>
   <style>
-    body { margin: 0; padding: 28px; font-family: Arial, sans-serif; color: #17211f; background: #ffffff; }
-    main { max-width: 1120px; margin: 0 auto; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px; font-family: Arial, sans-serif; color: #17211f; background: #ffffff; overflow-x: hidden; }
+    main { width: 100%; max-width: none; margin: 0; }
     h1 { margin: 0 0 6px; font-size: 26px; }
     h2 { margin: 28px 0 10px; font-size: 18px; color: #0f766e; }
     .meta { color: #5f6f6a; margin-bottom: 22px; }
-    table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 13px; }
-    th, td { border: 1px solid #d7e0e3; padding: 7px 8px; text-align: left; vertical-align: top; }
+    table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0 18px; font-size: 13px; }
+    th, td { border: 1px solid #d7e0e3; padding: 7px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     th { width: 28%; background: #f6f8f4; }
     thead th { width: auto; background: #edf5f1; }
     .ceiling-svg { width: 100%; height: auto; border: 1px solid #d7e0e3; background: #f6f8f4; }
@@ -898,7 +1057,7 @@ function buildRoomReportHtml(room: Room, constants: CalculatorConstants): string
     <h2>Необходими материали</h2>
     <table>
       <thead><tr><th>Материал</th><th>Количество</th><th>Как е сметнато</th></tr></thead>
-      <tbody>${renderHtmlMaterialsRows(materials, safeRoom, constants)}</tbody>
+      <tbody>${renderHtmlMaterialsRows(materials, [safeRoom], constants)}</tbody>
     </table>
     <h2>Работна схема</h2>
     ${renderWorkingSchemeSvg(safeRoom, result, constants)}
@@ -909,8 +1068,453 @@ function buildRoomReportHtml(room: Room, constants: CalculatorConstants): string
 </html>`;
 }
 
-async function buildRoomReportCanvas(room: Room, constants: CalculatorConstants): Promise<HTMLCanvasElement> {
-  const svg = buildRoomReportSvg(room, constants);
+function buildGlobalCutReportHtml(rooms: Room[], constants: CalculatorConstants): string {
+  const cutPlan = buildSafeGlobalCutPlan(rooms, constants);
+  const result = buildAggregateCutResult(rooms, constants);
+  const materials = buildMaterialTakeoff(rooms, constants);
+  const generatedAt = new Date().toLocaleString("bg-BG");
+  return `<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Общ разкрой - Knauf calculator</title>
+  <style>
+    body { margin: 0; padding: 28px; font-family: Arial, sans-serif; color: #17211f; background: #ffffff; }
+    main { max-width: 1120px; margin: 0 auto; }
+    h1 { margin: 0 0 6px; font-size: 26px; }
+    h2 { margin: 28px 0 10px; font-size: 18px; color: #0f766e; }
+    .meta { color: #5f6f6a; margin-bottom: 22px; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 13px; }
+    th, td { border: 1px solid #d7e0e3; padding: 7px 8px; text-align: left; vertical-align: top; }
+    th { width: 28%; background: #f6f8f4; }
+    .cut-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 12px; font-size: 12px; }
+    .cut-note { color: #5f6f6a; font-size: 13px; line-height: 1.45; }
+    .cut-legend span { padding: 4px 8px; border-radius: 999px; color: #fff; }
+    .cut-legend .carrier, .cut-piece.carrier { background: #0f766e; }
+    .cut-legend .mounting, .cut-piece.mounting { background: #f59e0b; color: #17211f; }
+    .cut-legend .ud, .cut-piece.ud { background: #2563eb; }
+    .cut-legend .waste, .cut-piece.waste { background: #d1d5db; color: #374151; }
+    .cut-bar-list { display: grid; gap: 9px; max-width: 100%; }
+    .cut-bar-card { max-width: 100%; overflow: hidden; break-inside: avoid; border: 1px solid #d7e0e3; border-radius: 6px; padding: 8px; }
+    .cut-bar-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+    .cut-strip { display: flex; width: 100%; height: 28px; overflow: hidden; border-radius: 4px; background: #eef2f7; }
+    .cut-piece { min-width: 0; padding: 0 2px; display: grid; place-items: center; color: #fff; font-size: 11px; border-right: 1px solid rgba(255,255,255,0.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .warning { padding: 10px; border: 1px solid #f3c5c5; background: #fff4f4; color: #991b1b; }
+    @media (max-width: 720px) { body { padding: 8px; } }
+    @media print { body { padding: 8mm; } h2, .cut-bar-card { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Общ разкрой</h1>
+    <div class="meta">Knauf D11 calculator · ${escapeHtml(generatedAt)} · ${rooms.length} стаи</div>
+    <h2>Общо материали</h2>
+    <table>
+      <thead><tr><th>Материал</th><th>Количество</th><th>Как е сметнато</th></tr></thead>
+      <tbody>${renderHtmlMaterialsRows(materials, rooms, constants)}</tbody>
+    </table>
+    <h2>Общ разкрой за всички стаи</h2>
+    ${renderHtmlCutPlan(cutPlan, result, true)}
+  </main>
+</body>
+</html>`;
+}
+
+interface InstallationGuideStep {
+  title: string;
+  items: string[];
+}
+
+interface InstallationCutPreparationStep {
+  enabled: boolean;
+  cd?: {
+    totalProfiles: number;
+    bars: Array<{
+      id: string;
+      segments: Array<{
+        lengthCm: number;
+        type: "carrier" | "mounting";
+      }>;
+    }>;
+  };
+  ud?: {
+    totalProfiles: number;
+    bars: Array<{
+      id: string;
+      segments: Array<{
+        lengthCm: number;
+      }>;
+    }>;
+  };
+  notes: string[];
+}
+
+interface InstallationGuide {
+  header: Array<[string, unknown]>;
+  summary: Array<[string, unknown]>;
+  cutPreparationStep?: InstallationCutPreparationStep;
+  steps: InstallationGuideStep[];
+  notes: string[];
+}
+
+interface InstallationGuideOptions {
+  showCutPreparation?: boolean;
+}
+
+function formatPositions(positions: number[], maxItems = 12): string {
+  if (!positions.length) return "няма данни";
+  const shown = positions.slice(0, maxItems).map((value) => `${Math.round(value)} cm`).join(", ");
+  return positions.length > maxItems ? `${shown} ...` : shown;
+}
+
+function formatSegmentLengths(lengths: number[], maxItems = 10): string {
+  if (!lengths.length) return "няма снадки/сегменти";
+  const shown = lengths.slice(0, maxItems).map((value) => `${formatNumber(value)} cm`).join(", ");
+  return lengths.length > maxItems ? `${shown} ...` : shown;
+}
+
+function formatCutBarLengths(lengths: number[]): string {
+  return lengths.map((lengthCm) => formatNumber(lengthCm)).join(" + ");
+}
+
+function buildCutPreparationStep(cutOptimizationResult: CutOptimizationResult | null | undefined, showCutPreparation: boolean): InstallationCutPreparationStep | undefined {
+  if (!showCutPreparation || !cutOptimizationResult) return undefined;
+  const cdBars = cutOptimizationResult.bars.filter(isCdCutBar).map((bar) => ({
+    id: bar.id,
+    segments: bar.segments
+      .filter((segment) => segment.type === "carrier" || segment.type === "mounting")
+      .map((segment) => ({
+        lengthCm: segment.lengthCm,
+        type: segment.type as "carrier" | "mounting",
+      })),
+  })).filter((bar) => bar.segments.length > 0);
+  const udBars = cutOptimizationResult.bars.filter(isUdCutBar).map((bar) => ({
+    id: bar.id,
+    segments: bar.segments
+      .filter((segment) => segment.type === "ud")
+      .map((segment) => ({ lengthCm: segment.lengthCm })),
+  })).filter((bar) => bar.segments.length > 0);
+
+  return {
+    enabled: true,
+    cd: cdBars.length ? { totalProfiles: cdBars.length, bars: cdBars } : undefined,
+    ud: udBars.length ? { totalProfiles: udBars.length, bars: udBars } : undefined,
+    notes: [
+      "CD и UD профилите не се смесват при рязане.",
+      "Снадките при CD да са близо до окачвач.",
+      "UD може да се съставя от няколко по-къси парчета.",
+    ],
+  };
+}
+
+function buildInstallationGuide(
+  room: Room,
+  result: CalcResult,
+  constants: CalculatorConstants,
+  cutOptimizationResult?: CutOptimizationResult | null,
+  options: InstallationGuideOptions = {},
+): InstallationGuide {
+  const boardLayers = getEffectiveBoardLayers(room, constants);
+  const boardArea = Number(room.area) * boardLayers;
+  const boardSize = Math.max(0.01, constants.boardWidth * constants.boardLength);
+  const boardCount = Math.ceil(boardArea / boardSize);
+  const reserveMultiplier = 1 + constants.wastePercent / 100;
+  const jointTapeLength = Number((Number(room.area) * constants.jointTapePerM2 * reserveMultiplier).toFixed(2));
+  const jointCompoundKg = Number((Number(room.area) * constants.jointCompoundKgPerM2 * reserveMultiplier).toFixed(2));
+  const trennFixLength = Number((result.udTotalLength * constants.trennFixPerimeterMultiplier * reserveMultiplier).toFixed(2));
+  const layout = buildSuspendedCeilingLayout({
+    roomWidthCm: result.W,
+    roomLengthCm: result.L,
+    profileLengthCm: constants.cdLength * 100,
+    carrierRowSpacingCm: room.c / 10,
+    hangerSpacingCm: room.a / 10,
+    firstHangerOffsetCm: constants.profileEdgeOffsetCm,
+  });
+  const mountingPositions = buildLinearPositions(result.L, room.b / 10, constants.profileEdgeOffsetCm);
+  const cutInput = buildCutOptimizationInput(room, result, constants);
+  const carrierSegmentLengths = cutInput.carrierRows.flatMap((row) => row.segments.map((segment) => segment.lengthCm));
+  const mountingSegmentLengths = cutInput.mountingRows.flatMap((row) => row.segments.map((segment) => segment.lengthCm));
+  const cdOptimizedQuantity = cutOptimizationResult
+    ? cutOptimizationResult.bars.filter(isCdCutBar).length
+    : undefined;
+  const cutPreparationStep = buildCutPreparationStep(cutOptimizationResult, options.showCutPreparation ?? true);
+
+  return {
+    header: [
+      ["Стая", room.name],
+      ["Система", room.systemType],
+      ["Размери", `${room.width} x ${room.length} cm`],
+      ["Площ", `${formatNumber(room.area)} m2`],
+    ],
+    summary: [
+      ["Носещи CD редове", result.bearingCount],
+      ["Монтажни CD редове", result.mountingCount],
+      ["Окачвачи", result.hangersTotal],
+      ["Връзки CD", result.crossConnectors],
+      ["UD периметър", `${formatNumber(result.udTotalLength)} m`],
+      ["CD след разкрой", cdOptimizedQuantity == null ? "няма данни" : `${cdOptimizedQuantity} бр.`],
+    ],
+    cutPreparationStep,
+    steps: [
+      {
+        title: "Монтаж на UD по периметъра",
+        items: [`UD дължина: ${formatNumber(result.udTotalLength)} m`, `Дюбели: ${result.anchorsUd} бр. през ${room.udAnchorSpacing} mm`],
+      },
+      {
+        title: "Разчертаване на носещите CD редове",
+        items: [`Носещи редове: ${result.bearingCount} бр.`, `Позиции: ${formatPositions(layout.carrierRowsYcm)}`],
+      },
+      {
+        title: "Монтаж на директните окачвачи",
+        items: [`Окачвачи: ${result.hangersTotal} бр.`, `Разстояние a: ${room.a} mm`, `X позиции: ${formatPositions(layout.hangerPositionsCm)}`],
+      },
+      {
+        title: "Монтаж на носещите CD профили",
+        items: [`Носещи редове: ${result.bearingCount} бр.`, `Сегменти/снадки: ${formatSegmentLengths(carrierSegmentLengths)}`],
+      },
+      {
+        title: "Монтаж на монтажните CD профили",
+        items: [`Монтажни редове: ${result.mountingCount} бр.`, `Разстояние b: ${room.b} mm`, `Позиции: ${formatPositions(mountingPositions)}`, `Връзки CD: ${result.crossConnectors} бр.`],
+      },
+      {
+        title: "Проверка на нивелация и геометрия",
+        items: ["UD профилите са нивелирани", "CD профилите са в една равнина", "Окачвачите са фиксирани стабилно", "Снадките са близо до окачвач"],
+      },
+      {
+        title: "Монтаж на гипсокартон",
+        items: [`Плоскости: ${boardCount} бр.`, `Площ обшивка: ${formatNumber(boardArea)} m2`, `TN винтове: ${result.drywallScrews} бр.`],
+      },
+      {
+        title: "Фугиране и довършване",
+        items: [`Фуголента: ${jointTapeLength} m`, `Шпакловка: ${jointCompoundKg} kg`, `Trenn-Fix: ${trennFixLength} m`],
+      },
+    ],
+    notes: [
+      "Провери основата и нивото преди пробиване.",
+      "Не смесвай CD и UD профили при рязане и монтаж.",
+      "Снадките на CD профилите не трябва да се подреждат в една линия.",
+      "Преди затваряне с плоскости провери всички връзки, окачвачи и периферия.",
+    ],
+  };
+}
+
+function getCutSummaryRows(cutPlan: CutPlanState): Array<[string, unknown]> {
+  if (cutPlan.error || !cutPlan.plan) return [["Разкрой", cutPlan.error || "неуспешно изчисление"]];
+  const plan = cutPlan.plan;
+  return [
+    ["Профили след разкрой", `${plan.totalBars} бр.`],
+    ["CD пръти", `${plan.bars.filter(isCdCutBar).length} бр.`],
+    ["UD пръти", `${plan.bars.filter(isUdCutBar).length} бр.`],
+    ["Отпадък", `${formatNumber(plan.totalWasteCm)} cm`],
+    ["Ефективност", `${formatNumber(plan.efficiencyPercent)} %`],
+  ];
+}
+
+function renderInstallationCutPreparationHtml(step?: InstallationCutPreparationStep): string {
+  if (!step?.enabled) return "";
+  const cd = step.cd ? `
+    <h3>CD профили</h3>
+    <p>Общо профили CD за покупка: ${step.cd.totalProfiles} бр. Профилите са оптимизирани така, че остатъците да се използват максимално ефективно.</p>
+    <ul>${step.cd.bars.map((bar, index) => `<li>Профил ${index + 1}: ${escapeHtml(formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm)))}</li>`).join("")}</ul>
+  ` : "";
+  const ud = step.ud ? `
+    <h3>UD профили (периметър)</h3>
+    <p>UD профилите могат да се комбинират свободно по периферията.</p>
+    <ul>${step.ud.bars.map((bar, index) => `<li>Профил ${index + 1}: ${escapeHtml(formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm)))}</li>`).join("")}</ul>
+  ` : "";
+  return `<section class="cut-prep">
+    <h2>Разкрой на профилите (подготовка)</h2>
+    ${cd}
+    ${ud}
+    <ul>${step.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
+  </section>`;
+}
+
+function appendInstallationCutPreparationSvg(body: string, y: number, step?: InstallationCutPreparationStep): { body: string; y: number } {
+  if (!step?.enabled) return { body, y };
+  let nextBody = body;
+  let nextY = y;
+  nextBody += `<rect x="30" y="${nextY - 16}" width="734" height="34" class="cut-prep-bg" />`;
+  nextBody += `<text x="42" y="${nextY + 6}" class="section-title">Разкрой на профилите (подготовка)</text>`;
+  nextY += 28;
+  if (step.cd) {
+    nextBody += `<text x="42" y="${nextY}" class="step-title">CD профили: ${step.cd.totalProfiles} бр.</text>`;
+    nextY += 16;
+    step.cd.bars.slice(0, 8).forEach((bar, index) => {
+      nextBody += `<text x="54" y="${nextY}" class="step-data">Профил ${index + 1}: ${escapeHtml(formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm)))}</text>`;
+      nextY += 14;
+    });
+  }
+  if (step.ud) {
+    nextBody += `<text x="42" y="${nextY}" class="step-title">UD профили: ${step.ud.totalProfiles} бр.</text>`;
+    nextY += 16;
+    step.ud.bars.slice(0, 6).forEach((bar, index) => {
+      nextBody += `<text x="54" y="${nextY}" class="step-data">Профил ${index + 1}: ${escapeHtml(formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm)))}</text>`;
+      nextY += 14;
+    });
+  }
+  step.notes.forEach((note) => {
+    nextBody += `<text x="42" y="${nextY}" class="step-data">• ${escapeHtml(note)}</text>`;
+    nextY += 14;
+  });
+  return { body: nextBody, y: nextY + 10 };
+}
+
+function buildInstallationGuideHtml(room: Room, constants: CalculatorConstants): string {
+  const safeRoom = cloneRoom(room);
+  const result = calc(safeRoom, constants);
+  const cutPlan = buildSafeCutPlan(safeRoom, result, constants);
+  const guide = buildInstallationGuide(safeRoom, result, constants, cutPlan.plan);
+  const generatedAt = new Date().toLocaleString("bg-BG");
+
+  return `<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(safeRoom.name)} - Монтажни етапи</title>
+  <style>
+    @page { size: A4; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; font-family: Arial, sans-serif; color: #17211f; background: #fff; }
+    main { max-width: 980px; margin: 0 auto; }
+    h1 { margin: 0 0 4px; font-size: 25px; }
+    h2 { margin: 18px 0 8px; font-size: 16px; color: #0f766e; }
+    .meta { color: #5f6f6a; font-size: 12px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    th, td { border: 1px solid #d7e0e3; padding: 6px 7px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    th { width: 42%; background: #f6f8f4; }
+    .steps { display: grid; gap: 6px; }
+    .step { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; border: 1px solid #d7e0e3; padding: 7px; break-inside: avoid; }
+    .cut-prep { margin: 12px 0; border: 1px solid #cde7e2; border-radius: 6px; padding: 10px; background: #f5fbf8; break-inside: avoid; }
+    .cut-prep h2 { margin-top: 0; }
+    .cut-prep h3 { margin: 10px 0 4px; font-size: 13px; }
+    .cut-prep p, .cut-prep li { font-size: 12px; color: #34413c; }
+    .cut-prep ul { margin: 4px 0 0; padding-left: 18px; }
+    .box { width: 15px; height: 15px; border: 2px solid #17211f; margin-top: 1px; }
+    .step strong { display: block; font-size: 13px; }
+    .step span, .notes li { font-size: 12px; color: #34413c; }
+    .ceiling-svg { width: 100%; height: auto; max-height: 330px; border: 1px solid #d7e0e3; background: #f6f8f4; }
+    .axis-label, .position-label, .hanger-label, .extension-label { font: 12px Arial, sans-serif; fill: #263633; }
+    .bearing-line { stroke: #0f766e; stroke-width: 3; }
+    .mounting-line { stroke: #f59e0b; stroke-width: 2; }
+    .hanger-dot { fill: #111827; }
+    .hanger-dimension-line { stroke: #111827; stroke-width: 1; stroke-dasharray: 4 4; }
+    .extension-dimension-line, .extension-mark { stroke: #dc2626; stroke-width: 2; }
+    .extension-label { fill: #991b1b; }
+    .notes { margin: 0; padding-left: 18px; }
+    @media print { body { padding: 0; } h2, .step, .ceiling-svg { break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Монтажни етапи</h1>
+    <div class="meta">${escapeHtml(safeRoom.name)} · ${escapeHtml(safeRoom.systemType)} · ${escapeHtml(generatedAt)}</div>
+    <div class="grid">
+      <section><h2>Данни</h2><table><tbody>${guide.header.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table></section>
+      <section><h2>Обобщение</h2><table><tbody>${guide.summary.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table></section>
+    </div>
+    <h2>Checklist</h2>
+    ${renderInstallationCutPreparationHtml(guide.cutPreparationStep)}
+    <section class="steps">${guide.steps.map((step) => `<article class="step"><span class="box"></span><div><strong>${escapeHtml(step.title)}</strong><span>${step.items.map(escapeHtml).join(" · ")}</span></div></article>`).join("")}</section>
+    <h2>Схема</h2>
+    ${renderWorkingSchemeSvg(safeRoom, result, constants)}
+    <div class="grid">
+      <section><h2>Кратък разкрой</h2><table><tbody>${getCutSummaryRows(cutPlan).map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table></section>
+      <section><h2>Бележки</h2><ul class="notes">${guide.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul></section>
+    </div>
+  </main>
+</body>
+</html>`;
+}
+
+function buildInstallationGuideSvg(room: Room, constants: CalculatorConstants): string {
+  const safeRoom = cloneRoom(room);
+  const result = calc(safeRoom, constants);
+  const cutPlan = buildSafeCutPlan(safeRoom, result, constants);
+  const guide = buildInstallationGuide(safeRoom, result, constants, cutPlan.plan);
+  const generatedAt = new Date().toLocaleString("bg-BG");
+  const pageW = 794;
+  const pageH = 1123;
+  let y = 34;
+  let body = "";
+
+  body += `<text x="36" y="${y}" class="title">Монтажни етапи</text>`;
+  y += 22;
+  body += `<text x="36" y="${y}" class="meta">${escapeHtml(safeRoom.name)} · ${escapeHtml(safeRoom.systemType)} · ${escapeHtml(generatedAt)}</text>`;
+  y += 22;
+  const headerRows = renderSvgKeyValueRows([...guide.header, ...guide.summary.slice(0, 5)], 0);
+  body += `<g transform="translate(0 ${y}) scale(0.72)">${headerRows.markup}</g>`;
+  y += headerRows.height * 0.72 + 24;
+
+  body += `<text x="36" y="${y}" class="section-title">Checklist</text>`;
+  y += 14;
+  const cutPrepSvg = appendInstallationCutPreparationSvg(body, y, guide.cutPreparationStep);
+  body = cutPrepSvg.body;
+  y = cutPrepSvg.y;
+  guide.steps.forEach((step) => {
+    body += `<rect x="36" y="${y - 10}" width="12" height="12" class="checkbox" />
+      <text x="58" y="${y}" class="step-title">${escapeHtml(step.title)}</text>
+      <text x="58" y="${y + 15}" class="step-data">${escapeHtml(step.items.join(" · "))}</text>`;
+    y += 34;
+  });
+
+  body += `<text x="36" y="${y}" class="section-title">Схема</text>`;
+  y += 10;
+  body += renderWorkingSchemeSvg(safeRoom, result, constants).replace("<svg ", `<svg x="36" y="${y}" width="722" height="412" `);
+  y += 430;
+
+  body += `<text x="36" y="${y}" class="section-title">Кратък разкрой</text>`;
+  y += 12;
+  const cutRows = renderSvgKeyValueRows(getCutSummaryRows(cutPlan), 0);
+  body += `<g transform="translate(0 ${y}) scale(0.72)">${cutRows.markup}</g>`;
+  y += cutRows.height * 0.72 + 28;
+
+  body += `<text x="36" y="${y}" class="section-title">Бележки</text>`;
+  y += 18;
+  guide.notes.slice(0, 3).forEach((note) => {
+    body += `<text x="48" y="${y}" class="step-data">• ${escapeHtml(note)}</text>`;
+    y += 16;
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pageW}" height="${pageH}" viewBox="0 0 ${pageW} ${pageH}">
+    <style>
+      .page-bg { fill: #ffffff; }
+      .title { font: 700 26px Arial, sans-serif; fill: #17211f; }
+      .meta { font: 12px Arial, sans-serif; fill: #5f6f6a; }
+      .section-title { font: 700 16px Arial, sans-serif; fill: #0f766e; }
+      .table-head { fill: #edf5f1; stroke: #d7e0e3; }
+      .table-cell { fill: #ffffff; stroke: #d7e0e3; }
+      .table-label { font: 700 13px Arial, sans-serif; fill: #34413c; }
+      .table-text { font: 13px Arial, sans-serif; fill: #17211f; }
+      .checkbox { fill: #ffffff; stroke: #17211f; stroke-width: 2; }
+      .cut-prep-bg { fill: #f5fbf8; stroke: #cde7e2; }
+      .step-title { font: 700 13px Arial, sans-serif; fill: #17211f; }
+      .step-data { font: 12px Arial, sans-serif; fill: #34413c; }
+      .axis-label, .position-label, .hanger-label, .extension-label { font: 12px Arial, sans-serif; fill: #263633; }
+      .bearing-line { stroke: #0f766e; stroke-width: 3; }
+      .mounting-line { stroke: #f59e0b; stroke-width: 2; }
+      .hanger-dot { fill: #111827; }
+      .hanger-dimension-line { stroke: #111827; stroke-width: 1; stroke-dasharray: 4 4; }
+      .extension-dimension-line, .extension-mark { stroke: #dc2626; stroke-width: 2; }
+      .extension-label { fill: #991b1b; }
+    </style>
+    <rect x="0" y="0" width="${pageW}" height="${pageH}" class="page-bg" />
+    ${body}
+  </svg>`;
+}
+
+async function buildInstallationGuideBlob(room: Room, constants: CalculatorConstants, fileType: InstallationGuideExportFileType): Promise<Blob> {
+  if (fileType === "html") {
+    return new Blob([buildInstallationGuideHtml(room, constants)], { type: "text/html;charset=utf-8" });
+  }
+  const canvas = await buildCanvasFromSvg(buildInstallationGuideSvg(room, constants));
+  return buildPdfFromCanvas(canvas, `${room.name} - Монтажни етапи`);
+}
+
+async function buildCanvasFromSvg(svg: string): Promise<HTMLCanvasElement> {
   const image = new Image();
   image.decoding = "async";
   const loaded = new Promise<void>((resolve, reject) => {
@@ -928,6 +1532,10 @@ async function buildRoomReportCanvas(room: Room, constants: CalculatorConstants)
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.drawImage(image, 0, 0);
   return canvas;
+}
+
+async function buildRoomReportCanvas(room: Room, constants: CalculatorConstants): Promise<HTMLCanvasElement> {
+  return buildCanvasFromSvg(buildRoomReportSvg(room, constants));
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
@@ -1002,16 +1610,31 @@ async function buildRoomReportBlob(room: Room, constants: CalculatorConstants, f
     : canvasToBlob(canvas, "image/png");
 }
 
+async function buildGlobalCutReportBlob(rooms: Room[], constants: CalculatorConstants, fileType: RoomCardExportFileType): Promise<Blob> {
+  if (fileType === "html") {
+    return new Blob([buildGlobalCutReportHtml(rooms, constants)], { type: "text/html;charset=utf-8" });
+  }
+  const canvas = await buildCanvasFromSvg(buildGlobalCutReportSvg(rooms, constants));
+  return fileType === "pdf"
+    ? buildPdfFromCanvas(canvas, "Общ разкрой")
+    : canvasToBlob(canvas, "image/png");
+}
+
 function getExportTypeDescription(contentType: ExportContentType, fileType: ExportFileType): string {
+  if (contentType === "installation-guide") {
+    return fileType === "pdf"
+      ? "PDF export създава printable A4 монтажен checklist за всяка стая: данни, обобщение, етапи, схема, кратък разкрой и бележки."
+      : "HTML export създава printable монтажен checklist за всяка стая, който може да се отвори в браузър и да се печата на A4.";
+  }
   if (fileType === "pdf") {
-    return "PDF export създава отделен файл за всяка стая. Всеки файл съдържа данни за стаята, необходимите материали с обяснение, работната схема и разкроя с дължините на отделните парчета.";
+    return "PDF export създава отделен файл за всяка стая плюс файл \"общ разкрой\". Файловете по стаи съдържат данни, материали, работна схема и разкрой, а общият файл събира оптимизирания разкрой за всички стаи.";
   }
   if (fileType === "png") {
-    return "PNG export създава отделна картинка за всяка стая със същия отчет: данни, материали, работна схема и разкрой. Подходящо е за бързо споделяне като изображение.";
+    return "PNG export създава отделна картинка за всяка стая плюс картинка \"общ разкрой\". Подходящо е за бързо споделяне като изображение.";
   }
   if (fileType === "html") {
     return contentType === "room-cards"
-      ? "HTML export създава отделен отваряем файл за всяка стая. Файлът може да се преглежда в браузър и да се печата, като съдържа таблици, SVG работна схема и подробен разкрой по пръти."
+      ? "HTML export създава отделен отваряем файл за всяка стая плюс файл \"общ разкрой\". Файловете могат да се преглеждат в браузър и да се печатат."
       : "HTML export създава един файл rooms.html с таблица на всички стаи. Подходящ е за преглед в браузър или бърз печат.";
   }
   if (fileType === "json") {
@@ -1021,27 +1644,42 @@ function getExportTypeDescription(contentType: ExportContentType, fileType: Expo
 }
 
 function getExportContentDescription(contentType: ExportContentType): string {
-  return contentType === "room-cards"
-    ? "Ще бъдат създадени отделни файлове за всяка стая с размери, материали, схема и разкрой."
-    : "Ще бъде създаден един файл с всички стаи и техните данни.";
+  if (contentType === "room-cards") {
+    return "Ще бъдат създадени отделни файлове за всяка стая с размери, материали, схема и разкрой, както и файл \"общ разкрой\" за всички стаи.";
+  }
+  if (contentType === "installation-guide") {
+    return "Ще бъдат създадени отделни файлове за всяка стая с кратки монтажни етапи, чекбоксове, схема и обобщен разкрой.";
+  }
+  return "Ще бъде създаден един файл с всички стаи и техните данни.";
 }
 
 function getExportFormatOptions(contentType: ExportContentType): Array<{ value: ExportFileType; label: string }> {
-  return contentType === "room-cards"
-    ? [
+  if (contentType === "room-cards") {
+    return [
       { value: "pdf", label: "PDF" },
       { value: "png", label: "PNG" },
       { value: "html", label: "HTML" },
-    ]
-    : [
-      { value: "excel", label: "Excel" },
-      { value: "json", label: "JSON" },
+    ];
+  }
+  if (contentType === "installation-guide") {
+    return [
+      { value: "pdf", label: "PDF" },
       { value: "html", label: "HTML" },
     ];
+  }
+  return [
+    { value: "excel", label: "Excel" },
+    { value: "json", label: "JSON" },
+    { value: "html", label: "HTML" },
+  ];
 }
 
 function isRoomCardFileType(fileType: ExportFileType): fileType is RoomCardExportFileType {
   return fileType === "pdf" || fileType === "png" || fileType === "html";
+}
+
+function isInstallationGuideFileType(fileType: ExportFileType): fileType is InstallationGuideExportFileType {
+  return fileType === "pdf" || fileType === "html";
 }
 
 const CUSTOM_A_OPTIONS = buildRange(100, 3000, 50);
@@ -1080,12 +1718,18 @@ function App() {
   const [exportStatus, setExportStatus] = useState("");
   const [activeSection, setActiveSection] = useState<AppSection>("room");
   const [roomWorkspacePanel, setRoomWorkspacePanel] = useState<RoomWorkspacePanel>("visual");
+  const [cutOptimizationMode, setCutOptimizationMode] = useState<CutOptimizationMode>("room");
+  const [installationGuideRoomId, setInstallationGuideRoomId] = useState<string | null>(null);
 
   const activeRoom = state.draftRoom;
-  const activeResult = calc(activeRoom, state.constants);
-  const activeCutPlan = buildSafeCutPlan(activeRoom, activeResult, state.constants);
-  const activeWarnings = getValidationWarnings(cloneRoom(activeRoom));
+  const activeResult = useMemo(() => calc(cloneRoom(activeRoom), state.constants), [activeRoom, state.constants]);
+  const activeCutPlan = useMemo(() => buildSafeCutPlan(activeRoom, activeResult, state.constants), [activeRoom, activeResult, state.constants]);
+  const globalCutPlan = useMemo(() => buildSafeGlobalCutPlan(state.rooms, state.constants), [state.rooms, state.constants]);
+  const activeWarnings = useMemo(() => getValidationWarnings(cloneRoom(activeRoom)), [activeRoom]);
   const isValid = !activeWarnings.some((warning) => warning.severity === "error");
+  const installationGuideRoom = installationGuideRoomId
+    ? state.rooms.find((room) => room.id === installationGuideRoomId) ?? null
+    : null;
 
   function commit(updater: (draft: AppState) => void): void {
     setState((current) => {
@@ -1289,9 +1933,9 @@ function App() {
     const headers = ["Материал", "Количество", "Ед.", "Как е сметнато"];
     const rows = buildMaterialTakeoff(state.rooms, state.constants).map((row) => [
       row.label,
-      row.quantity,
+      formatMaterialQuantity(row),
       row.unit,
-      buildMaterialCalculationInfo(row, state.rooms, state.constants),
+      buildMaterialExplanation(row, state.rooms, state.constants),
     ]);
     const sheetRows = [headers, ...rows]
       .map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`)
@@ -1317,7 +1961,7 @@ function App() {
 
   function changeExportContentType(contentType: ExportContentType): void {
     setExportContentType(contentType);
-    setExportFileType(contentType === "room-cards" ? "pdf" : "excel");
+    setExportFileType(contentType === "table" ? "excel" : "pdf");
   }
 
   async function exportRoomReports(): Promise<void> {
@@ -1330,20 +1974,41 @@ function App() {
     const filenameCounts = new Map<string, number>();
     const reports = exportContentType === "table"
       ? [{
-        filename: exportFileType === "json" ? "rooms.json" : exportFileType === "html" ? "rooms.html" : "rooms.xls",
-        blob: exportFileType === "json" ? buildAppJsonBlob() : exportFileType === "html" ? buildRoomsHtmlBlob() : buildRoomsExcelBlob(),
-      }]
-      : await Promise.all(state.rooms.map(async (room) => {
+          filename: exportFileType === "json" ? "rooms.json" : exportFileType === "html" ? "rooms.html" : "rooms.xls",
+          blob: exportFileType === "json" ? buildAppJsonBlob() : exportFileType === "html" ? buildRoomsHtmlBlob() : buildRoomsExcelBlob(),
+        }]
+      : exportContentType === "installation-guide"
+        ? await Promise.all(state.rooms.map(async (room) => {
+            const guideFileType = isInstallationGuideFileType(exportFileType) ? exportFileType : "pdf";
+            const baseName = sanitizeFilename(`${room.name || room.systemType} - монтажни етапи`);
+            const count = filenameCounts.get(baseName) ?? 0;
+            filenameCounts.set(baseName, count + 1);
+            const filename = `${baseName}${count ? `-${count + 1}` : ""}.${guideFileType}`;
+            return {
+              filename,
+              blob: await buildInstallationGuideBlob(room, state.constants, guideFileType),
+            };
+          }))
+        : await (async () => {
           const roomCardFileType = isRoomCardFileType(exportFileType) ? exportFileType : "pdf";
-          const baseName = sanitizeFilename(room.name || room.systemType);
-          const count = filenameCounts.get(baseName) ?? 0;
-          filenameCounts.set(baseName, count + 1);
-          const filename = `${baseName}${count ? `-${count + 1}` : ""}.${roomCardFileType}`;
-          return {
-            filename,
-            blob: await buildRoomReportBlob(room, state.constants, roomCardFileType),
-          };
-        }));
+          const roomReports = await Promise.all(state.rooms.map(async (room) => {
+            const baseName = sanitizeFilename(room.name || room.systemType);
+            const count = filenameCounts.get(baseName) ?? 0;
+            filenameCounts.set(baseName, count + 1);
+            const filename = `${baseName}${count ? `-${count + 1}` : ""}.${roomCardFileType}`;
+            return {
+              filename,
+              blob: await buildRoomReportBlob(room, state.constants, roomCardFileType),
+            };
+          }));
+          return [
+            ...roomReports,
+            {
+              filename: `${sanitizeFilename("общ разкрой")}.${roomCardFileType}`,
+              blob: await buildGlobalCutReportBlob(state.rooms, state.constants, roomCardFileType),
+            },
+          ];
+        })();
 
     try {
       if (window.showDirectoryPicker && exportDirectoryHandle) {
@@ -1441,8 +2106,11 @@ function App() {
                   <CutOptimizationPanel
                     room={activeRoom}
                     result={activeResult}
-                    cutPlan={activeCutPlan}
+                    cutPlan={cutOptimizationMode === "room" ? activeCutPlan : globalCutPlan}
                     constants={state.constants}
+                    mode={cutOptimizationMode}
+                    rooms={state.rooms}
+                    onModeChange={setCutOptimizationMode}
                     onBackToVisualization={() => setRoomWorkspacePanel("visual")}
                   />
                 )}
@@ -1471,6 +2139,7 @@ function App() {
               onRecalculate={recalculateSavedRooms}
               onOpenExport={() => setIsExportModalOpen(true)}
               onImportJson={importJson}
+              onOpenInstallationGuide={setInstallationGuideRoomId}
             />
           </section>
         )}
@@ -1517,6 +2186,13 @@ function App() {
           onConfirm={confirmDeleteAllRooms}
         />
       )}
+      {installationGuideRoom && (
+        <InstallationGuideModal
+          room={installationGuideRoom}
+          constants={state.constants}
+          onClose={() => setInstallationGuideRoomId(null)}
+        />
+      )}
     </main>
   );
 }
@@ -1553,6 +2229,7 @@ function ExportModal({ directoryName, contentType, fileType, destinationName, st
           <label>Какво искаш да експортираш?
             <select value={contentType} onChange={(event) => onContentTypeChange(event.target.value as ExportContentType)}>
               <option value="room-cards">Карти за стаи (схема + материали + разкрой)</option>
+              <option value="installation-guide">Монтажни етапи (printable checklist)</option>
               <option value="table">Таблица със стаи (данни / grid)</option>
             </select>
           </label>
@@ -1578,6 +2255,165 @@ function ExportModal({ directoryName, contentType, fileType, destinationName, st
         </div>
       </section>
     </div>
+  );
+}
+
+function InstallationGuideModal({ room, constants, onClose }: {
+  room: Room;
+  constants: CalculatorConstants;
+  onClose: () => void;
+}) {
+  function printGuide(): void {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    printWindow.document.open();
+    printWindow.document.write(buildInstallationGuideHtml(room, constants));
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+    window.setTimeout(() => {
+      if (!printWindow.closed) {
+        printWindow.focus();
+        printWindow.print();
+      }
+    }, 500);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="panel installation-modal" role="dialog" aria-modal="true" aria-labelledby="installation-guide-title">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Монтажни етапи</p>
+            <h2 id="installation-guide-title">Монтажни етапи - {room.name}</h2>
+          </div>
+          <button type="button" className="ghost small" onClick={onClose}>Затвори</button>
+        </div>
+        <div className="installation-modal-body">
+          <InstallationGuideContent room={room} constants={constants} mode="modal" />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={printGuide}>Print</button>
+          <button type="button" className="ghost" onClick={onClose}>Затвори</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function InstallationGuideContent({ room, constants, mode }: {
+  room: Room;
+  constants: CalculatorConstants;
+  mode: "modal" | "print";
+}) {
+  const safeRoom = useMemo(() => cloneRoom(room), [room]);
+  const result = useMemo(() => calc(safeRoom, constants), [safeRoom, constants]);
+  const cutPlan = useMemo(() => buildSafeCutPlan(safeRoom, result, constants), [safeRoom, result, constants]);
+  const guide = useMemo(() => buildInstallationGuide(safeRoom, result, constants, cutPlan.plan), [safeRoom, result, constants, cutPlan.plan]);
+
+  return (
+    <div className={`installation-guide ${mode}`}>
+      <div className="installation-guide-grid">
+        <InstallationSummary title="Данни" rows={guide.header} />
+        <InstallationSummary title="Обобщение" rows={guide.summary} />
+        <InstallationSummary title="Кратък разкрой" rows={getCutSummaryRows(cutPlan)} />
+        <section className="installation-notes">
+          <h3>Бележки</h3>
+          <ul>
+            {guide.notes.map((note) => <li key={note}>{note}</li>)}
+          </ul>
+        </section>
+      </div>
+      <section>
+        <h3>Схема</h3>
+        <ExistingRoomScheme room={safeRoom} result={result} constants={constants} />
+      </section>
+      <section>
+        <h3>Checklist</h3>
+        <InstallationCutPreparation step={guide.cutPreparationStep} />
+        <InstallationStepList steps={guide.steps} />
+      </section>
+    </div>
+  );
+}
+
+function InstallationSummary({ title, rows }: { title: string; rows: Array<[string, unknown]> }) {
+  return (
+    <section className="installation-summary">
+      <h3>{title}</h3>
+      <dl>
+        {rows.map(([label, value]) => (
+          <div key={String(label)}>
+            <dt>{label}</dt>
+            <dd>{String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function InstallationCutPreparation({ step }: { step?: InstallationCutPreparationStep }) {
+  if (!step?.enabled) return null;
+  return (
+    <details className="installation-cut-prep" open>
+      <summary>Разкрой на профилите</summary>
+      {step.cd ? (
+        <section>
+          <h4>CD профили</h4>
+          <p>Общо профили CD за покупка: {step.cd.totalProfiles} бр.</p>
+          <p>Профилите са оптимизирани така, че остатъците да се използват максимално ефективно.</p>
+          <ul>
+            {step.cd.bars.map((bar, index) => (
+              <li key={bar.id}>Профил {index + 1}: {formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm))}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {step.ud ? (
+        <section>
+          <h4>UD профили (периметър)</h4>
+          <p>UD профилите могат да се комбинират свободно по периферията.</p>
+          <ul>
+            {step.ud.bars.map((bar, index) => (
+              <li key={bar.id}>Профил {index + 1}: {formatCutBarLengths(bar.segments.map((segment) => segment.lengthCm))}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <ul className="installation-cut-notes">
+        {step.notes.map((note) => <li key={note}>{note}</li>)}
+      </ul>
+    </details>
+  );
+}
+
+function InstallationStepList({ steps }: { steps: InstallationGuideStep[] }) {
+  return (
+    <div className="installation-step-list">
+      {steps.map((step, index) => (
+        <article key={step.title} className="installation-step">
+          <span className="installation-checkbox" />
+          <div>
+            <strong>{index + 1}. {step.title}</strong>
+            <ul>
+              {step.items.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ExistingRoomScheme({ room, result, constants }: { room: Room; result: CalcResult; constants: CalculatorConstants }) {
+  return (
+    <div
+      className="installation-scheme"
+      dangerouslySetInnerHTML={{ __html: renderWorkingSchemeSvg(room, result, constants) }}
+    />
   );
 }
 
@@ -1608,23 +2444,57 @@ function ConfirmDeleteAllModal({ roomCount, onCancel, onConfirm }: {
   );
 }
 
-function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisualization }: {
+function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, onModeChange, onBackToVisualization }: {
   room: Room;
   result: CalcResult;
   cutPlan: CutPlanState;
   constants: CalculatorConstants;
+  mode: CutOptimizationMode;
+  rooms: Room[];
+  onModeChange: (mode: CutOptimizationMode) => void;
   onBackToVisualization?: () => void;
 }) {
+  const isGlobalMode = mode === "global";
+  const title = isGlobalMode ? "Общ разкрой за всички стаи" : `Разкрой за ${room.name}`;
+  const savedRoomsProfileCounts = rooms.reduce((sum, savedRoom) => {
+    const savedResult = calc(savedRoom, constants);
+    sum.cd += savedResult.cdTotalProfiles;
+    sum.ud += savedResult.udProfiles;
+    return sum;
+  }, { cd: 0, ud: 0 });
+  const currentCdProfiles = isGlobalMode ? savedRoomsProfileCounts.cd : result.cdTotalProfiles;
+  const currentUdProfiles = isGlobalMode ? savedRoomsProfileCounts.ud : result.udProfiles;
+  const currentProfiles = currentCdProfiles + currentUdProfiles;
+  const modeToggle = (
+    <div className="cut-mode-toggle" role="group" aria-label="Режим на разкрой">
+      <button
+        type="button"
+        className={mode === "room" ? "active" : ""}
+        onClick={() => onModeChange("room")}
+      >
+        Разкрой по стая
+      </button>
+      <button
+        type="button"
+        className={mode === "global" ? "active" : ""}
+        onClick={() => onModeChange("global")}
+      >
+        Общ разкрой за всички стаи
+      </button>
+    </div>
+  );
+
   if (cutPlan.error || !cutPlan.plan) {
     return (
       <section className="panel cut-plan-panel">
         <div className="panel-title">
           <div>
             <p className="eyebrow">Оптимизация на разкроя</p>
-            <h2>Разкрой за {room.name}</h2>
+            <h2>{title}</h2>
           </div>
           {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
         </div>
+        {modeToggle}
         <div className="validation-item error">
           Разкроят не може да се изчисли с текущия layout и зададените дължини на профилите.
           {" "}
@@ -1635,23 +2505,25 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
   }
 
   const plan = cutPlan.plan;
-  const currentProfiles = result.cdTotalProfiles + result.udProfiles;
   const savedBars = Math.max(0, currentProfiles - plan.totalBars);
   const savedPercent = currentProfiles > 0
     ? Number(((savedBars / currentProfiles) * 100).toFixed(2))
     : 0;
   const totalPurchasedLengthCm = plan.bars.reduce((sum, bar) => sum + bar.stockLengthCm, 0);
   const stockLengthCm = plan.bars[0]?.stockLengthCm ?? Math.max(constants.cdLength, constants.udLength) * 100;
+  const optimizedCdBars = plan.bars.filter(isCdCutBar).length;
+  const optimizedUdBars = plan.bars.filter(isUdCutBar).length;
+  const summarySubject = isGlobalMode ? "всички запазени стаи" : room.name;
   const summaryText = savedBars > 0
-    ? `С този разкрой за ${room.name} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., като подрежда CD профилите отделно от UD профилите.`
-    : `За ${room.name} този разкрой не намалява броя нужни профили спрямо простото броене ${currentProfiles} бр., но подрежда CD и UD парчетата в отделни реални планове за рязане и показва остатъците.`;
+    ? `С този разкрой за ${summarySubject} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., като подрежда CD профилите отделно от UD профилите.`
+    : `За ${summarySubject} този разкрой не намалява броя нужни профили спрямо простото броене ${currentProfiles} бр., но подрежда CD и UD парчетата в отделни реални планове за рязане и показва остатъците.`;
 
   return (
     <section className="panel cut-plan-panel">
       <div className="panel-title">
         <div>
           <p className="eyebrow">Оптимизация на разкроя</p>
-          <h2>Разкрой за {room.name}</h2>
+          <h2>{title}</h2>
         </div>
         {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
         <div className="cut-plan-summary-chip">
@@ -1659,13 +2531,14 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
           <small>стандартен прът {formatNumber(stockLengthCm)} cm, срез {0.3} cm, остатък над {20} cm се счита за използваем</small>
         </div>
       </div>
+      {modeToggle}
 
       <div className="cut-plan-metrics">
         <div className="cut-metric">
           <span>Общо профили</span>
-          <strong>{plan.totalBars}</strong>
+          <strong>{plan.totalBars} <small>(CD {optimizedCdBars} бр., UD {optimizedUdBars} бр.)</small></strong>
           <small>Това е колко стандартни пръта трябва да купиш за този разкрой.</small>
-          <small>Сравнение с текущото просто броене: {currentProfiles} профила.</small>
+          <small>Сравнение с текущото просто броене: {currentProfiles} профила - CD {currentCdProfiles} бр., UD {currentUdProfiles} бр.</small>
         </div>
         <div className="cut-metric">
           <span>Отпадък</span>
@@ -1696,7 +2569,8 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
         </small>
         <small>
           Разкроят не променя конструктивната геометрия. Носещите CD редове остават възможно най-цели; снадки има само когато редът е по-дълъг от профила.
-          {room.systemType === "D113" ? " Късите монтажни CD сегменти при D113 са реални парчета между носещи редове/периметър." : ""}
+          {!isGlobalMode && room.systemType === "D113" ? " Късите монтажни CD сегменти при D113 са реални парчета между носещи редове/периметър." : ""}
+          {isGlobalMode ? " При общия разкрой всяко парче пази името на стаята, от която идва." : ""}
         </small>
       </div>
 
@@ -1714,8 +2588,8 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, onBackToVisual
       </div>
 
       <div className="cut-bar-groups">
-        <CutBarGroup title="Разкрой CD профили" bars={plan.bars.filter(isCdCutBar)} />
-        <CutBarGroup title="Разкрой UD профили" bars={plan.bars.filter(isUdCutBar)} />
+        <CutBarGroup title="Разкрой CD профили" bars={plan.bars.filter(isCdCutBar)} showRoomNames={isGlobalMode} />
+        <CutBarGroup title="Разкрой UD профили" bars={plan.bars.filter(isUdCutBar)} showRoomNames={isGlobalMode} />
       </div>
     </section>
   );
@@ -1759,7 +2633,7 @@ function LegendItem({ type, label }: { type: "carrier" | "mounting" | "ud" | "wa
   );
 }
 
-function CutBarGroup({ title, bars }: { title: string; bars: CutBar[] }) {
+function CutBarGroup({ title, bars, showRoomNames = false }: { title: string; bars: CutBar[]; showRoomNames?: boolean }) {
   if (!bars.length) return null;
   return (
     <section className="cut-bar-group">
@@ -1768,13 +2642,13 @@ function CutBarGroup({ title, bars }: { title: string; bars: CutBar[] }) {
         <small>{bars.length} пръта</small>
       </div>
       <div className="cut-bar-list">
-        {bars.map((bar) => <CutBarStrip key={bar.id} bar={bar} />)}
+        {bars.map((bar) => <CutBarStrip key={bar.id} bar={bar} showRoomNames={showRoomNames} />)}
       </div>
     </section>
   );
 }
 
-function CutBarStrip({ bar }: { bar: CutBar }) {
+function CutBarStrip({ bar, showRoomNames = false }: { bar: CutBar; showRoomNames?: boolean }) {
   const barLabel = getCutPieceLabel(bar.type);
   return (
     <div className="cut-bar-card">
@@ -1784,16 +2658,26 @@ function CutBarStrip({ bar }: { bar: CutBar }) {
         <small>използвани {formatNumber(bar.usedCm)} / {formatNumber(bar.stockLengthCm)} cm</small>
       </div>
       <div className="cut-strip">
-        {bar.segments.map((segment) => (
-          <div
-            key={segment.pieceId}
-            className={`cut-piece ${segment.type}`}
-            style={{ width: `${(segment.lengthCm / bar.stockLengthCm) * 100}%` }}
-            title={`${getCutPieceLabel(segment.type)}: ${segment.lengthCm} cm`}
-          >
-            {Math.round(segment.lengthCm)}
-          </div>
-        ))}
+        {bar.segments.map((segment) => {
+          const piece = bar.pieces.find((item) => item.id === segment.pieceId);
+          const roomName = piece?.roomName;
+          const segmentLabel = showRoomNames && roomName
+            ? `${Math.round(segment.lengthCm)} cm · ${roomName}`
+            : String(Math.round(segment.lengthCm));
+          const title = showRoomNames && roomName
+            ? `${getCutPieceLabel(segment.type)}: ${segment.lengthCm} cm · ${roomName}`
+            : `${getCutPieceLabel(segment.type)}: ${segment.lengthCm} cm`;
+          return (
+            <div
+              key={segment.pieceId}
+              className={`cut-piece ${segment.type}`}
+              style={{ width: `${(segment.lengthCm / bar.stockLengthCm) * 100}%` }}
+              title={title}
+            >
+              {segmentLabel}
+            </div>
+          );
+        })}
         {bar.wasteCm > 0 && (
           <div
             className="cut-piece waste"
@@ -2362,7 +3246,7 @@ function Visualization({ room, result, constants, zoom, onZoomChange, onOpenCutO
   );
 }
 
-function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDelete, onDeleteAll, onRecalculate, onOpenExport, onImportJson }: {
+function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDelete, onDeleteAll, onRecalculate, onOpenExport, onImportJson, onOpenInstallationGuide }: {
   rooms: Room[];
   constants: CalculatorConstants;
   activeRoomId: string;
@@ -2373,6 +3257,7 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
   onRecalculate: () => void;
   onOpenExport: () => void;
   onImportJson: (event: ChangeEvent<HTMLInputElement>) => void;
+  onOpenInstallationGuide: (roomId: string) => void;
 }) {
   return (
     <section className="panel table-panel">
@@ -2416,7 +3301,12 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
                     <td>{result.hangersTotal}</td>
                     <td>{result.anchorsTotal}</td>
                     <td>{result.metalScrews + result.drywallScrews}</td>
-                    <td><button type="button" className="danger small" onClick={() => onDelete(room.id)}>Изтрий</button></td>
+                    <td>
+                      <div className="row-actions">
+                        <button type="button" className="ghost small" title="Монтажни етапи" onClick={() => onOpenInstallationGuide(room.id)}>Монтажни етапи</button>
+                        <button type="button" className="danger small" onClick={() => onDelete(room.id)}>Изтрий</button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -2434,7 +3324,7 @@ function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
   onReserveChange: (wastePercent: number) => void;
   onExportExcel: () => void;
 }) {
-  const rows = buildMaterialTakeoff(rooms, constants);
+  const rows = useMemo(() => buildMaterialTakeoff(rooms, constants), [rooms, constants]);
   return (
     <section className="panel materials-panel">
       <div className="panel-title">
@@ -2450,11 +3340,11 @@ function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
       <div className="material-list">
         {rows.map((row) => {
           const catalogProduct = getCatalogProductForMaterial(row.label, row.key);
-          const explanation = buildMaterialCalculationInfo(row, rooms, constants);
+          const explanation = buildMaterialExplanation(row, rooms, constants);
           return (
             <div key={row.key} className="material-row">
               <span>{row.label}</span>
-              <strong>{row.quantity} {row.unit}</strong>
+              <strong>{formatMaterialQuantity(row)}</strong>
               <small>{explanation}{catalogProduct ? ` Каталожен артикул: ${catalogProduct.knaufName}.` : ""}</small>
             </div>
           );

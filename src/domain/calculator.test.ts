@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCutOptimizationInput, buildLayoutHangerPositions, buildLinearPositions, buildMaterialTakeoff, buildPositions, buildStaggeredExtensionLayout, buildSuspendedCeilingLayout, calc, DEFAULT_CONSTANTS, estimateLoadKgPerM2, getAllowedAValues, getAllowedBValues, getAutoABC, getAutomaticLoadClass, getBoardOptions, getEffectiveBoardLayers, getFireCertificationCheck, getHangerOptions, getTableValue, getUdAnchoringRule, getValidationWarnings, optimizeSuspendedCeilingCuts, Room, validateCombination } from "./calculator";
+import { buildCutOptimizationInput, buildLayoutHangerPositions, buildLinearPositions, buildMaterialTakeoff, buildPositions, buildStaggeredExtensionLayout, buildSuspendedCeilingLayout, calc, DEFAULT_CONSTANTS, estimateLoadKgPerM2, getAllowedAValues, getAllowedBValues, getAutoABC, getAutomaticLoadClass, getBoardOptions, getEffectiveBoardLayers, getFireCertificationCheck, getHangerOptions, getTableValue, getUdAnchoringRule, getValidationWarnings, optimizeAllRoomsSuspendedCeilingCuts, optimizeSuspendedCeilingCuts, Room, validateCombination } from "./calculator";
 
 function makeRoom(patch: Partial<Room> = {}): Room {
   return {
@@ -428,6 +428,63 @@ describe("calculator", () => {
     expect(plan.totalWasteCm).toBe(0);
     expect(plan.efficiencyPercent).toBe(100);
     expect(plan.bars.every((bar) => bar.pieces.length === 2)).toBe(true);
+  });
+
+  it("optimizes all saved rooms together while preserving room metadata on pieces", () => {
+    const rooms = [
+      makeRoom({ id: "room-a", name: "Баня 2", systemType: "D112", width: 20, length: 200, a: 900, b: 600, c: 600 }),
+      makeRoom({ id: "room-b", name: "Склад", systemType: "D112", width: 20, length: 200, a: 900, b: 600, c: 600 }),
+    ];
+    const plan = optimizeAllRoomsSuspendedCeilingCuts(rooms, DEFAULT_CONSTANTS, {
+      stockLengthCm: 400,
+      kerfCm: 0,
+      minReusableOffcutCm: 20,
+      perTypeStockLengthsCm: { carrier: 400, mounting: 400, ud: 400 },
+    });
+    const sharedCdBar = plan.bars.find((bar) => (
+      bar.pieces.length === 2
+      && bar.pieces.every((piece) => piece.type === "carrier" && piece.lengthCm === 200)
+    ));
+
+    expect(sharedCdBar?.pieces.map((piece) => piece.roomName).sort()).toEqual(["Баня 2", "Склад"]);
+    expect(plan.bars.every((bar) => bar.pieces.every((piece) => piece.roomId && piece.roomName))).toBe(true);
+  });
+
+  it("keeps CD and UD in separate bars in global cut optimization", () => {
+    const rooms = [
+      makeRoom({ id: "room-a", name: "Баня 2", systemType: "D112", width: 200, length: 200, a: 900, b: 600, c: 600 }),
+      makeRoom({ id: "room-b", name: "Склад", systemType: "D112", width: 200, length: 200, a: 900, b: 600, c: 600 }),
+    ];
+    const plan = optimizeAllRoomsSuspendedCeilingCuts(rooms, DEFAULT_CONSTANTS, {
+      stockLengthCm: 400,
+      kerfCm: 0,
+      minReusableOffcutCm: 20,
+      perTypeStockLengthsCm: { carrier: 400, mounting: 400, ud: 400 },
+    });
+
+    expect(plan.bars.every((bar) => {
+      const hasCd = bar.pieces.some((piece) => piece.type === "carrier" || piece.type === "mounting");
+      const hasUd = bar.pieces.some((piece) => piece.type === "ud");
+      return !(hasCd && hasUd);
+    })).toBe(true);
+  });
+
+  it("does not change existing per-room cut optimization result", () => {
+    const twoHundredSegment = { fromCm: 0, toCm: 200, lengthCm: 200 };
+    const plan = optimizeSuspendedCeilingCuts({
+      carrierRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      mountingRows: Array.from({ length: 4 }, (_, rowIndex) => ({ rowIndex, segments: [twoHundredSegment] })),
+      udProfiles: { segments: Array.from({ length: 4 }, () => twoHundredSegment) },
+    }, {
+      stockLengthCm: 400,
+      kerfCm: 0,
+      minReusableOffcutCm: 20,
+    });
+
+    expect(plan.totalBars).toBe(6);
+    expect(plan.totalUsedCm).toBe(2400);
+    expect(plan.totalWasteCm).toBe(0);
+    expect(plan.efficiencyPercent).toBe(100);
   });
 
   it("builds cut optimization input from the generated layout without changing segment lengths", () => {
@@ -1003,5 +1060,33 @@ describe("calculator", () => {
     expect(rows.some((row) => row.key === "d111-bearing-battens")).toBe(true);
     expect(rows.some((row) => row.key === "d111-mounting-battens")).toBe(true);
     expect(rows.some((row) => row.key === "d111-cd-60-27")).toBe(false);
+  });
+
+  it("adds optimized cut quantities only to CD and UD profile material rows", () => {
+    const room = makeRoom({ systemType: "D112", width: 200, length: 200, a: 900, b: 600, c: 600 });
+    const rows = buildMaterialTakeoff([room], { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+    const cdRow = rows.find((row) => row.key === "d112-cd-60-27");
+    const udRow = rows.find((row) => row.key === "d112-ud-28-27");
+    const connectorRow = rows.find((row) => row.key === "d112-connectors");
+
+    expect(cdRow?.optimizedQuantity).toBeDefined();
+    expect(cdRow?.optimizedExplanation).toContain("без смесване с UD профили");
+    expect(udRow?.optimizedQuantity).toBeDefined();
+    expect(udRow?.optimizedExplanation).toContain("остатъците от UD профили");
+    expect(connectorRow?.optimizedQuantity).toBeUndefined();
+  });
+
+  it("uses global optimized profile counts in total material takeoff", () => {
+    const rooms = [
+      makeRoom({ id: "room-a", name: "Баня 2", systemType: "D112", width: 20, length: 200, a: 900, b: 600, c: 600 }),
+      makeRoom({ id: "room-b", name: "Склад", systemType: "D112", width: 20, length: 200, a: 900, b: 600, c: 600 }),
+    ];
+    const rows = buildMaterialTakeoff(rooms, { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+    const plan = optimizeAllRoomsSuspendedCeilingCuts(rooms, { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+    const cdBars = plan.bars.filter((bar) => bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "carrier" || piece.type === "mounting")).length;
+    const udBars = plan.bars.filter((bar) => bar.pieces.length > 0 && bar.pieces.every((piece) => piece.type === "ud")).length;
+
+    expect(rows.find((row) => row.key === "d112-cd-60-27")?.optimizedQuantity).toBe(cdBars);
+    expect(rows.find((row) => row.key === "d112-ud-28-27")?.optimizedQuantity).toBe(udBars);
   });
 });
