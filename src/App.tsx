@@ -85,7 +85,7 @@ interface AppState {
 type MaterialPrices = Record<string, number>;
 type CutPlanState = { plan: CutOptimizationResult; error: null } | { plan: null; error: string };
 type AppSection = "room" | "settings" | "materials" | "help";
-type RoomWorkspacePanel = "visual" | "cut";
+type RoomWorkspacePanel = "visual" | "materials" | "cut" | "installation" | "validations";
 type CutOptimizationMode = "room" | "global";
 type ExportContentType = "room-cards" | "table" | "installation-guide";
 type RoomCardExportFileType = "pdf" | "png" | "html";
@@ -2041,10 +2041,10 @@ function App() {
 
   const loadClasses = getLoadClasses(activeRoom.systemType, activeRoom.fireProtection, activeRoom.d116Variant, activeRoom.d112Variant);
   const menuItems: Array<{ key: AppSection; label: string }> = [
-    { key: "room", label: "Стаи" },
-    { key: "settings", label: "Глобални настройки" },
-    { key: "materials", label: "Общо Материали" },
-    { key: "help", label: "Help" },
+    { key: "room", label: "Активна стая" },
+    { key: "materials", label: "Общи материали" },
+    { key: "settings", label: "Настройки" },
+    { key: "help", label: "Помощ" },
   ];
 
   return (
@@ -2052,8 +2052,9 @@ function App() {
       <section className="workbench">
         <div className="topbar">
           <div>
-            <p className="eyebrow">Knauf D11 calculator</p>
+            <p className="eyebrow">Knauf D11 Calculator</p>
             <h1>Калкулатор за окачени тавани</h1>
+            <small className="topbar-subtitle">{state.rooms.length} запазени стаи · {activeRoom.systemType}</small>
           </div>
           <div className="topbar-actions">
             {menuItems.map((item) => (
@@ -2093,27 +2094,21 @@ function App() {
 
               <section className="visual-workspace">
                 <ResultCards result={activeResult} room={activeRoom} />
-                {roomWorkspacePanel === "visual" ? (
-                  <Visualization
-                    room={activeRoom}
-                    result={activeResult}
-                    constants={state.constants}
-                    zoom={zoom}
-                    onZoomChange={setZoom}
-                    onOpenCutOptimization={() => setRoomWorkspacePanel("cut")}
-                  />
-                ) : (
-                  <CutOptimizationPanel
-                    room={activeRoom}
-                    result={activeResult}
-                    cutPlan={cutOptimizationMode === "room" ? activeCutPlan : globalCutPlan}
-                    constants={state.constants}
-                    mode={cutOptimizationMode}
-                    rooms={state.rooms}
-                    onModeChange={setCutOptimizationMode}
-                    onBackToVisualization={() => setRoomWorkspacePanel("visual")}
-                  />
-                )}
+                <ResultTabs activeTab={roomWorkspacePanel} onChange={setRoomWorkspacePanel} warningCount={activeWarnings.length} />
+                <RoomWorkspacePanelView
+                  activeTab={roomWorkspacePanel}
+                  room={activeRoom}
+                  result={activeResult}
+                  constants={state.constants}
+                  rooms={state.rooms}
+                  zoom={zoom}
+                  warnings={activeWarnings}
+                  activeCutPlan={activeCutPlan}
+                  globalCutPlan={globalCutPlan}
+                  cutOptimizationMode={cutOptimizationMode}
+                  onZoomChange={setZoom}
+                  onCutOptimizationModeChange={setCutOptimizationMode}
+                />
               </section>
             </div>
 
@@ -2191,6 +2186,15 @@ function App() {
           room={installationGuideRoom}
           constants={state.constants}
           onClose={() => setInstallationGuideRoomId(null)}
+        />
+      )}
+      {activeSection === "room" && (
+        <MobileActionBar
+          onSave={saveCurrentState}
+          onCut={() => setRoomWorkspacePanel("cut")}
+          onMaterials={() => setRoomWorkspacePanel("materials")}
+          onExport={() => setIsExportModalOpen(true)}
+          canExport={Boolean(state.rooms.length)}
         />
       )}
     </main>
@@ -2330,6 +2334,7 @@ function InstallationGuideContent({ room, constants, mode }: {
         <h3>Схема</h3>
         <ExistingRoomScheme room={safeRoom} result={result} constants={constants} />
       </section>
+      <InstallationRoomCutPlan cutPlan={cutPlan} />
       <section>
         <h3>Checklist</h3>
         <InstallationCutPreparation step={guide.cutPreparationStep} />
@@ -2351,6 +2356,27 @@ function InstallationSummary({ title, rows }: { title: string; rows: Array<[stri
           </div>
         ))}
       </dl>
+    </section>
+  );
+}
+
+function InstallationRoomCutPlan({ cutPlan }: { cutPlan: CutPlanState }) {
+  if (cutPlan.error || !cutPlan.plan) {
+    return (
+      <section className="installation-cut-plan">
+        <h3>Разкрой за стаята</h3>
+        <div className="validation-item error">{cutPlan.error || "Разкроят не може да се изчисли."}</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="installation-cut-plan">
+      <h3>Разкрой за стаята</h3>
+      <div className="cut-bar-groups">
+        <CutBarGroup title="Разкрой CD профили" bars={cutPlan.plan.bars.filter(isCdCutBar)} />
+        <CutBarGroup title="Разкрой UD профили" bars={cutPlan.plan.bars.filter(isUdCutBar)} />
+      </div>
     </section>
   );
 }
@@ -2444,7 +2470,188 @@ function ConfirmDeleteAllModal({ roomCount, onCancel, onConfirm }: {
   );
 }
 
-function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, onModeChange, onBackToVisualization }: {
+function ResultTabs({ activeTab, onChange, warningCount }: {
+  activeTab: RoomWorkspacePanel;
+  onChange: (tab: RoomWorkspacePanel) => void;
+  warningCount: number;
+}) {
+  const tabs: Array<{ key: RoomWorkspacePanel; label: string }> = [
+    { key: "visual", label: "Схема" },
+    { key: "materials", label: "Материали" },
+    { key: "cut", label: "Разкрой" },
+    { key: "installation", label: "Монтажни етапи" },
+    { key: "validations", label: warningCount ? `Валидации (${warningCount})` : "Валидации" },
+  ];
+  return (
+    <div className="result-tabs" role="tablist" aria-label="Резултати за активната стая">
+      {tabs.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.key}
+          className={activeTab === tab.key ? "active" : ""}
+          onClick={() => onChange(tab.key)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoom, warnings, activeCutPlan, globalCutPlan, cutOptimizationMode, onZoomChange, onCutOptimizationModeChange }: {
+  activeTab: RoomWorkspacePanel;
+  room: Room;
+  result: CalcResult;
+  constants: CalculatorConstants;
+  rooms: Room[];
+  zoom: number;
+  warnings: ReturnType<typeof getValidationWarnings>;
+  activeCutPlan: CutPlanState;
+  globalCutPlan: CutPlanState;
+  cutOptimizationMode: CutOptimizationMode;
+  onZoomChange: (zoom: number) => void;
+  onCutOptimizationModeChange: (mode: CutOptimizationMode) => void;
+}) {
+  if (activeTab === "materials") {
+    return <RoomMaterialsPanel room={room} constants={constants} />;
+  }
+  if (activeTab === "cut") {
+    return (
+      <CutOptimizationPanel
+        room={room}
+        result={result}
+        cutPlan={cutOptimizationMode === "room" ? activeCutPlan : globalCutPlan}
+        constants={constants}
+        mode={cutOptimizationMode}
+        rooms={rooms}
+        onModeChange={onCutOptimizationModeChange}
+      />
+    );
+  }
+  if (activeTab === "installation") {
+    return (
+      <section className="panel result-panel">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Монтаж</p>
+            <h2>Монтажни етапи за {room.name}</h2>
+          </div>
+        </div>
+        <InstallationGuideContent room={room} constants={constants} mode="modal" />
+      </section>
+    );
+  }
+  if (activeTab === "validations") {
+    return <RoomValidationPanel warnings={warnings} room={room} />;
+  }
+  return (
+    <Visualization
+      room={room}
+      result={result}
+      constants={constants}
+      zoom={zoom}
+      onZoomChange={onZoomChange}
+    />
+  );
+}
+
+function RoomMaterialsPanel({ room, constants }: { room: Room; constants: CalculatorConstants }) {
+  const rows = useMemo(() => buildMaterialTakeoff([room], constants), [room, constants]);
+  return (
+    <section className="panel result-panel">
+      <div className="panel-title">
+        <div>
+          <p className="eyebrow">Материали</p>
+          <h2>Материали за {room.name}</h2>
+        </div>
+      </div>
+      <MaterialCardList rows={rows} rooms={[room]} constants={constants} />
+    </section>
+  );
+}
+
+function MaterialCardList({ rows, rooms, constants }: { rows: MaterialTakeoffItem[]; rooms: Room[]; constants: CalculatorConstants }) {
+  const groups = [
+    { title: "Профили", rows: rows.filter((row) => row.key.includes("cd-") || row.key.includes("ud-") || row.key.includes("ua-") || row.key.includes("uw-") || row.key.includes("battens")) },
+    { title: "Крепежи", rows: rows.filter((row) => row.key.includes("anchors") || row.key.includes("hangers") || row.key.includes("connectors") || row.key.includes("screws") || row.key.includes("extensions")) },
+    { title: "Гипсокартон", rows: rows.filter((row) => row.key.includes("boards")) },
+    { title: "Фугиране", rows: rows.filter((row) => row.key.includes("joint") || row.key.includes("trenn")) },
+    { title: "Изолация", rows: rows.filter((row) => row.key.includes("mineral")) },
+  ].filter((group) => group.rows.length);
+
+  return (
+    <div className="material-groups">
+      {groups.map((group) => (
+        <section key={group.title} className="material-group-card">
+          <h3>{group.title}</h3>
+          <div className="material-card-list">
+            {group.rows.map((row) => (
+              <details key={row.key} className="material-card">
+                <summary>
+                  <span>{row.label}</span>
+                  <strong>{formatMaterialQuantity(row)}</strong>
+                </summary>
+                <p>
+                  {buildMaterialExplanation(row, rooms, constants)}
+                  {(() => {
+                    const catalogProduct = getCatalogProductForMaterial(row.label, row.key);
+                    return catalogProduct ? ` Каталожен артикул: ${catalogProduct.knaufName}.` : "";
+                  })()}
+                </p>
+              </details>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function RoomValidationPanel({ warnings, room }: { warnings: ReturnType<typeof getValidationWarnings>; room: Room }) {
+  return (
+    <section className="panel result-panel">
+      <div className="panel-title">
+        <div>
+          <p className="eyebrow">Валидации</p>
+          <h2>Бележки за {room.name}</h2>
+        </div>
+      </div>
+      {!warnings.length ? (
+        <p className="empty-state">Няма активни предупреждения за тази стая.</p>
+      ) : (
+        <div className="validation-list visible-list">
+          {warnings.map((warning) => (
+            <div key={warning.code} className={`validation-item ${warning.severity}`}>
+              <strong>{warning.severity === "error" ? "Грешка" : "Предупреждение"}</strong>
+              <span>{warning.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MobileActionBar({ onSave, onCut, onMaterials, onExport, canExport }: {
+  onSave: () => void;
+  onCut: () => void;
+  onMaterials: () => void;
+  onExport: () => void;
+  canExport: boolean;
+}) {
+  return (
+    <nav className="mobile-action-bar" aria-label="Бързи действия">
+      <button type="button" onClick={onSave}>Запази</button>
+      <button type="button" className="ghost" onClick={onCut}>Разкрой</button>
+      <button type="button" className="ghost" onClick={onMaterials}>Материали</button>
+      <button type="button" className="ghost" disabled={!canExport} onClick={onExport}>Експорт</button>
+    </nav>
+  );
+}
+
+function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, onModeChange }: {
   room: Room;
   result: CalcResult;
   cutPlan: CutPlanState;
@@ -2452,7 +2659,6 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
   mode: CutOptimizationMode;
   rooms: Room[];
   onModeChange: (mode: CutOptimizationMode) => void;
-  onBackToVisualization?: () => void;
 }) {
   const isGlobalMode = mode === "global";
   const title = isGlobalMode ? "Общ разкрой за всички стаи" : `Разкрой за ${room.name}`;
@@ -2492,7 +2698,6 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
             <p className="eyebrow">Оптимизация на разкроя</p>
             <h2>{title}</h2>
           </div>
-          {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
         </div>
         {modeToggle}
         <div className="validation-item error">
@@ -2525,7 +2730,6 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
           <p className="eyebrow">Оптимизация на разкроя</p>
           <h2>{title}</h2>
         </div>
-        {onBackToVisualization ? <button type="button" className="workspace-toggle-button" onClick={onBackToVisualization}>Работна схема</button> : null}
         <div className="cut-plan-summary-chip">
           <strong>{plan.totalBars} профила</strong>
           <small>стандартен прът {formatNumber(stockLengthCm)} cm, срез {0.3} cm, остатък над {20} cm се счита за използваем</small>
@@ -2731,7 +2935,7 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
   const fireRating = room.fireRating ?? (room.fireProtection ? "fire_table" : "none");
   const isCustom = room.systemType === "CUSTOM";
   return (
-    <section className="panel">
+    <section className="panel room-editor-panel">
       <div className="panel-title">
         <div>
           <p className="eyebrow">Активна стая</p>
@@ -2743,6 +2947,11 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
         </div>
       </div>
 
+      <details className="settings-accordion" open>
+        <summary>
+          <span>Основни параметри</span>
+          <small>Име, размери, площ и конструкция</small>
+        </summary>
       <div className="field-grid">
         <label>Име
           <input value={room.name} onChange={(event) => onRoomChange((draft) => { draft.name = event.target.value || "Стая"; })} />
@@ -2835,6 +3044,7 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           </div>
         )}
       </div>
+      </details>
 
       {warnings.length > 0 && (
         <div className="validation-list">
@@ -2846,6 +3056,11 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
         </div>
       )}
 
+      <details className="settings-accordion" open>
+        <summary>
+          <span>Натоварване</span>
+          <small>Товар, огнезащита, плоскости и окачвачи</small>
+        </summary>
       <div className="field-grid">
         <label className="span-2">Режим товар
           <select value={room.loadInputMode ?? "manual"} onChange={(event) => onRoomChange((draft) => {
@@ -2910,11 +3125,17 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           <span className="field-note">{selectedHanger.useWhen}</span>
         </label>
       </div>
+      </details>
 
-      <div className="spacing-head">
-        <strong>Разстояния</strong>
-        <button type="button" className="ghost small" onClick={onResetAuto}>{isCustom ? "Върни стандартни" : "Върни по Knauf"}</button>
-      </div>
+      <details className="settings-accordion" open>
+        <summary>
+          <span>Разстояния</span>
+          <small>a, b, c и периферни дюбели</small>
+        </summary>
+        <div className="spacing-head">
+          <strong>Разстояния</strong>
+          <button type="button" className="ghost small" onClick={onResetAuto}>{isCustom ? "Върни стандартни" : "Върни по Knauf"}</button>
+        </div>
       <div className="field-grid spacing-card">
         {isCustom ? (
           <>
@@ -2961,8 +3182,16 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           })} />
         )}
       </div>
-      <p className="hint">{variantHint}</p>
-      <p className="hint">{udRule.note}</p>
+      </details>
+
+      <details className="settings-accordion">
+        <summary>
+          <span>Допълнително</span>
+          <small>Бележки и състояние на записа</small>
+        </summary>
+        <p className="hint">{variantHint}</p>
+        <p className="hint">{udRule.note}</p>
+      </details>
       <div className="room-save-row">
         {saveStatus && <span className="save-status">{saveStatus}</span>}
         <button type="button" className="workspace-toggle-button" onClick={onSave}>Save</button>
@@ -3077,13 +3306,13 @@ function ConstantsEditor({ constants, onChange }: { constants: CalculatorConstan
 
 function SettingsGroup({ title, note, children }: { title: string; note: string; children: ReactNode }) {
   return (
-    <section className="settings-group">
-      <div className="settings-group-head">
+    <details className="settings-group" open>
+      <summary className="settings-group-head">
         <h3>{title}</h3>
         <p>{note}</p>
-      </div>
+      </summary>
       <div className="field-grid">{children}</div>
-    </section>
+    </details>
   );
 }
 
@@ -3123,13 +3352,12 @@ function Metric({ label, value, suffix, note }: { label: string; value: number; 
   );
 }
 
-function Visualization({ room, result, constants, zoom, onZoomChange, onOpenCutOptimization }: {
+function Visualization({ room, result, constants, zoom, onZoomChange }: {
   room: Room;
   result: CalcResult;
   constants: CalculatorConstants;
   zoom: number;
   onZoomChange: (zoom: number) => void;
-  onOpenCutOptimization: () => void;
 }) {
   const layout = buildSuspendedCeilingLayout({
     roomWidthCm: result.W,
@@ -3160,7 +3388,6 @@ function Visualization({ room, result, constants, zoom, onZoomChange, onOpenCutO
           <h2>{room.name} - {room.systemType}</h2>
         </div>
         <div className="zoom-group">
-          <button type="button" className="workspace-toggle-button" onClick={onOpenCutOptimization}>Оптимизация на разкроя</button>
           <button type="button" className="ghost small" onClick={() => onZoomChange(Math.max(0.7, zoom - 0.1))}>-</button>
           <span>{Math.round(zoom * 100)}%</span>
           <button type="button" className="ghost small" onClick={() => onZoomChange(Math.min(1.8, zoom + 0.1))}>+</button>
@@ -3259,12 +3486,15 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
   onImportJson: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenInstallationGuide: (roomId: string) => void;
 }) {
+  const totalArea = rooms.reduce((sum, room) => sum + (Number(room.area) || 0), 0);
+
   return (
     <section className="panel table-panel">
-      <div className="panel-title">
+      <div className="panel-title rooms-grid-toolbar">
         <div>
           <p className="eyebrow">Стаи</p>
           <h2>Количества по стаи</h2>
+          <small>{rooms.length} стаи · {formatNumber(totalArea)} m2</small>
         </div>
         <div className="room-table-actions">
           <label className="file-button small">Импорт JSON<input type="file" accept="application/json" onChange={onImportJson} /></label>
@@ -3276,43 +3506,105 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
       {!rooms.length ? (
         <p className="empty-state">Няма запазени стаи. Активната стая ще се появи тук след Save.</p>
       ) : (
-        <div className="table-scroll">
-          <table>
+        <>
+        <div className="table-scroll rooms-table-scroll">
+          <table className="rooms-table">
+            <colgroup>
+              <col className="col-room" />
+              <col className="col-system" />
+              <col className="col-dimensions" />
+              <col className="col-area" />
+              <col className="col-small" />
+              <col className="col-small" />
+              <col className="col-small" />
+              <col className="col-small" />
+              <col className="col-compact" />
+              <col className="col-small" />
+              <col className="col-compact" />
+              <col className="col-small" />
+              <col className="col-compact" />
+              <col className="col-small" />
+              <col className="col-actions" />
+            </colgroup>
             <thead>
               <tr>
-                <th>Стая</th><th>Система</th><th>X</th><th>Y</th><th>m2</th><th>Носещи</th><th>Монтажни</th><th>Профили</th><th>UD</th><th>Връзки</th><th>Окачвачи</th><th>Дюбели</th><th>Винтове</th><th></th>
+                <th scope="col" className="sticky-room-col">Стая</th>
+                <th scope="col">Система</th>
+                <th scope="col" className="group-dimensions">Размери</th>
+                <th scope="col" className="group-dimensions">m2</th>
+                <th scope="col" className="group-structure">Носещи</th>
+                <th scope="col" className="group-structure">Монтажни</th>
+                <th scope="col" className="group-structure">CD</th>
+                <th scope="col" className="group-structure">CD Опт</th>
+                <th scope="col" className="group-structure">UD</th>
+                <th scope="col" className="group-structure">UD Опт</th>
+                <th scope="col" className="group-fasteners">Връзки</th>
+                <th scope="col" className="group-fasteners">Окачвачи</th>
+                <th scope="col" className="group-fasteners">Дюбели</th>
+                <th scope="col" className="group-fasteners">Винтове</th>
+                <th scope="col" className="group-actions">Действия</th>
               </tr>
             </thead>
             <tbody>
               {rooms.map((room) => {
                 const result = calc(cloneRoom(room), constants);
+                const cutPlan = buildSafeCutPlan(room, result, constants);
+                const optimizedCdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null;
+                const optimizedUdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null;
                 return (
-                  <tr key={room.id} className={room.id === activeRoomId ? "selected-row" : ""}>
-                    <td><button type="button" className="link-button" onClick={() => onSelect(room.id)}>{room.name}</button></td>
-                    <td>{room.systemType}</td>
-                    <td>{room.width}</td>
-                    <td>{room.length}</td>
-                    <td>{formatNumber(room.area)}</td>
-                    <td>{result.bearingCount}</td>
-                    <td>{result.mountingCount}</td>
-                    <td>{result.cdTotalProfiles}</td>
-                    <td>{result.udProfiles}</td>
-                    <td>{result.crossConnectors}</td>
-                    <td>{result.hangersTotal}</td>
-                    <td>{result.anchorsTotal}</td>
-                    <td>{result.metalScrews + result.drywallScrews}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button type="button" className="ghost small" title="Монтажни етапи" onClick={() => onOpenInstallationGuide(room.id)}>Монтажни етапи</button>
-                        <button type="button" className="danger small" onClick={() => onDelete(room.id)}>Изтрий</button>
-                      </div>
-                    </td>
-                  </tr>
+                    <tr key={room.id} className={room.id === activeRoomId ? "selected-row" : ""}>
+                      <td className="sticky-room-col">
+                        <button type="button" className="link-button room-name-button" onClick={() => onSelect(room.id)}>{room.name}</button>
+                      </td>
+                      <td><span className="system-pill">{room.systemType}</span></td>
+                      <td>{room.width} x {room.length} cm</td>
+                      <td>{formatNumber(room.area)}</td>
+                      <td>{result.bearingCount}</td>
+                      <td>{result.mountingCount}</td>
+                      <td>{result.cdTotalProfiles}</td>
+                      <td>{optimizedCdProfiles ?? "-"}</td>
+                      <td>{result.udProfiles}</td>
+                      <td>{optimizedUdProfiles ?? "-"}</td>
+                      <td>{result.crossConnectors}</td>
+                      <td>{result.hangersTotal}</td>
+                      <td>{result.anchorsTotal}</td>
+                      <td>{result.metalScrews + result.drywallScrews}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button type="button" className="ghost small" title="Монтажни етапи" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
+                          <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
+                        </div>
+                      </td>
+                    </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        <div className="rooms-card-list">
+          {rooms.map((room) => {
+                const result = calc(cloneRoom(room), constants);
+                const cutPlan = buildSafeCutPlan(room, result, constants);
+                const optimizedCdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null;
+                const optimizedUdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null;
+                return (
+              <article key={room.id} className={room.id === activeRoomId ? "room-card selected" : "room-card"}>
+                <button type="button" className="link-button room-card-title" onClick={() => onSelect(room.id)}>{room.name}</button>
+                <p>{room.systemType} · {room.width} x {room.length} cm · {formatNumber(room.area)} m2</p>
+                <div className="room-card-metrics">
+                  <span>CD: <strong>{result.cdTotalProfiles}</strong>{optimizedCdProfiles != null ? <small>опт. {optimizedCdProfiles}</small> : null}</span>
+                  <span>Окачвачи: <strong>{result.hangersTotal}</strong></span>
+                  <span>UD: <strong>{result.udProfiles}</strong>{optimizedUdProfiles != null ? <small>опт. {optimizedUdProfiles}</small> : null}</span>
+                </div>
+                <div className="row-actions">
+                  <button type="button" className="ghost small" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
+                  <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        </>
       )}
     </section>
   );
@@ -3337,19 +3629,7 @@ function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
       <div className="reserve-field">
         <NumberInput label="Резерв (%)" value={constants.wastePercent} step={0.1} onChange={onReserveChange} />
       </div>
-      <div className="material-list">
-        {rows.map((row) => {
-          const catalogProduct = getCatalogProductForMaterial(row.label, row.key);
-          const explanation = buildMaterialExplanation(row, rooms, constants);
-          return (
-            <div key={row.key} className="material-row">
-              <span>{row.label}</span>
-              <strong>{formatMaterialQuantity(row)}</strong>
-              <small>{explanation}{catalogProduct ? ` Каталожен артикул: ${catalogProduct.knaufName}.` : ""}</small>
-            </div>
-          );
-        })}
-      </div>
+      <MaterialCardList rows={rows} rooms={rooms} constants={constants} />
     </section>
   );
 }
