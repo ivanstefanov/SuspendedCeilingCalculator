@@ -514,6 +514,11 @@ h3 {
   margin-bottom: 0.8rem;
 }
 
+.rooms-grid-toolbar > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .room-editor-panel > .panel-title {
   margin-bottom: 0;
 }
@@ -532,7 +537,8 @@ h3 {
 
 .room-table-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 0.4rem;
   align-items: center;
@@ -1444,6 +1450,13 @@ h3 {
   font-size: 0.8rem;
 }
 
+.rooms-summary-metrics {
+  max-width: min(980px, 100%);
+  color: var(--muted);
+  line-height: 1.25;
+  white-space: normal;
+}
+
 .rooms-table-scroll {
   max-height: 560px;
   border: 1px solid var(--line);
@@ -1563,6 +1576,40 @@ th {
 
 .selected-row td {
   background: #edf8f4 !important;
+}
+
+.rooms-table .room-metrics-row td {
+  padding: 0.8rem;
+  background: #f7fbfa !important;
+  white-space: normal;
+}
+
+.room-metrics-detail {
+  border: 1px solid rgba(216, 225, 220, 0.9);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  background: #fff;
+  box-shadow: inset 3px 0 0 rgba(23, 128, 112, 0.22);
+}
+
+.room-metrics-detail .metric-strip {
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 0.55rem;
+}
+
+.room-metrics-detail .metric {
+  min-height: 92px;
+  padding: 0.7rem;
+  box-shadow: none;
+}
+
+.room-metrics-detail .metric strong {
+  margin-top: 0.32rem;
+  font-size: 1.32rem;
+}
+
+.room-metrics-detail .metric em {
+  margin-top: 0.32rem;
 }
 
 .link-button {

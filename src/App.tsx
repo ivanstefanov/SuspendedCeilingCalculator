@@ -1,4 +1,4 @@
-import { ChangeEvent, ReactNode, useMemo, useState } from "react";
+import { ChangeEvent, Fragment, ReactNode, useMemo, useState } from "react";
 import {
   CalcResult,
   CalculatorConstants,
@@ -2093,7 +2093,30 @@ function App() {
               </aside>
 
               <section className="visual-workspace">
-                <ResultCards result={activeResult} room={activeRoom} />
+                <RoomsTable
+                  rooms={state.rooms}
+                  constants={state.constants}
+                  activeRoomId={state.activeRoomId}
+                  onAddRoom={() => {
+                    addRoom();
+                    setActiveSection("room");
+                    setRoomWorkspacePanel("visual");
+                  }}
+                  onSelect={(roomId) => commit((draft) => {
+                    const room = draft.rooms.find((item) => item.id === roomId);
+                    if (!room) return;
+                    draft.draftRoom = cloneRoom(room);
+                    draft.activeRoomId = room.id;
+                    setActiveSection("room");
+                    setRoomWorkspacePanel("visual");
+                  })}
+                  onDelete={deleteRoom}
+                  onDeleteAll={() => setIsDeleteAllModalOpen(true)}
+                  onRecalculate={recalculateSavedRooms}
+                  onOpenExport={() => setIsExportModalOpen(true)}
+                  onImportJson={importJson}
+                  onOpenInstallationGuide={setInstallationGuideRoomId}
+                />
                 <ResultTabs activeTab={roomWorkspacePanel} onChange={setRoomWorkspacePanel} warningCount={activeWarnings.length} />
                 <RoomWorkspacePanelView
                   activeTab={roomWorkspacePanel}
@@ -2111,31 +2134,6 @@ function App() {
                 />
               </section>
             </div>
-
-            <RoomsTable
-              rooms={state.rooms}
-              constants={state.constants}
-              activeRoomId={state.activeRoomId}
-              onAddRoom={() => {
-                addRoom();
-                setActiveSection("room");
-                setRoomWorkspacePanel("visual");
-              }}
-              onSelect={(roomId) => commit((draft) => {
-                const room = draft.rooms.find((item) => item.id === roomId);
-                if (!room) return;
-                draft.draftRoom = cloneRoom(room);
-                draft.activeRoomId = room.id;
-                setActiveSection("room");
-                setRoomWorkspacePanel("visual");
-              })}
-              onDelete={deleteRoom}
-              onDeleteAll={() => setIsDeleteAllModalOpen(true)}
-              onRecalculate={recalculateSavedRooms}
-              onOpenExport={() => setIsExportModalOpen(true)}
-              onImportJson={importJson}
-              onOpenInstallationGuide={setInstallationGuideRoomId}
-            />
           </section>
         )}
 
@@ -2293,7 +2291,6 @@ function InstallationGuideModal({ room, constants, onClose }: {
             <p className="eyebrow">Монтажни етапи</p>
             <h2 id="installation-guide-title">Монтажни етапи - {room.name}</h2>
           </div>
-          <button type="button" className="ghost small" onClick={onClose}>Затвори</button>
         </div>
         <div className="installation-modal-body">
           <InstallationGuideContent room={room} constants={constants} mode="modal" />
@@ -3486,7 +3483,47 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
   onImportJson: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenInstallationGuide: (roomId: string) => void;
 }) {
-  const totalArea = rooms.reduce((sum, room) => sum + (Number(room.area) || 0), 0);
+  const roomRows = useMemo(() => rooms.map((room) => {
+    const result = calc(cloneRoom(room), constants);
+    const cutPlan = buildSafeCutPlan(room, result, constants);
+    return {
+      room,
+      result,
+      cutPlan,
+      optimizedCdProfiles: cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null,
+      optimizedUdProfiles: cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null,
+    };
+  }), [rooms, constants]);
+  const totals = useMemo(() => {
+    const globalCutPlan = buildSafeGlobalCutPlan(rooms, constants);
+    return roomRows.reduce((sum, { room, result }) => ({
+      area: sum.area + (Number(room.area) || 0),
+      cdProfiles: sum.cdProfiles + result.cdTotalProfiles,
+      udProfiles: sum.udProfiles + result.udProfiles,
+      crossConnectors: sum.crossConnectors + result.crossConnectors,
+      hangers: sum.hangers + result.hangersTotal,
+      anchors: sum.anchors + result.anchorsTotal,
+      screws: sum.screws + result.metalScrews + result.drywallScrews,
+      optimizedCdProfiles: globalCutPlan.plan ? globalCutPlan.plan.bars.filter(isCdCutBar).length : null,
+      optimizedUdProfiles: globalCutPlan.plan ? globalCutPlan.plan.bars.filter(isUdCutBar).length : null,
+    }), {
+      area: 0,
+      cdProfiles: 0,
+      udProfiles: 0,
+      crossConnectors: 0,
+      hangers: 0,
+      anchors: 0,
+      screws: 0,
+      optimizedCdProfiles: null as number | null,
+      optimizedUdProfiles: null as number | null,
+    });
+  }, [roomRows, rooms, constants]);
+  const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
+
+  function handleRoomNameClick(roomId: string): void {
+    onSelect(roomId);
+    setExpandedRoomId((current) => (current === roomId ? null : roomId));
+  }
 
   return (
     <section className="panel table-panel">
@@ -3494,7 +3531,11 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
         <div>
           <p className="eyebrow">Стаи</p>
           <h2>Количества по стаи</h2>
-          <small>{rooms.length} стаи · {formatNumber(totalArea)} m2</small>
+          <small className="rooms-summary-metrics">
+            {rooms.length} стаи · {formatNumber(totals.area)} m2 · CD {totals.cdProfiles} бр.
+            {totals.optimizedCdProfiles != null ? ` (${totals.optimizedCdProfiles} след разкрой)` : ""} · UD {totals.udProfiles} бр.
+            {totals.optimizedUdProfiles != null ? ` (${totals.optimizedUdProfiles} след разкрой)` : ""} · Връзки {totals.crossConnectors} бр. · Окачвачи {totals.hangers} бр. · Дюбели {totals.anchors} бр. · Винтове {totals.screws} бр.
+          </small>
         </div>
         <div className="room-table-actions">
           <label className="file-button small">Импорт JSON<input type="file" accept="application/json" onChange={onImportJson} /></label>
@@ -3546,15 +3587,20 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
               </tr>
             </thead>
             <tbody>
-              {rooms.map((room) => {
-                const result = calc(cloneRoom(room), constants);
-                const cutPlan = buildSafeCutPlan(room, result, constants);
-                const optimizedCdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null;
-                const optimizedUdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null;
+              {roomRows.map(({ room, result, optimizedCdProfiles, optimizedUdProfiles }) => {
+                const isExpanded = expandedRoomId === room.id;
                 return (
-                    <tr key={room.id} className={room.id === activeRoomId ? "selected-row" : ""}>
+                  <Fragment key={room.id}>
+                    <tr className={room.id === activeRoomId ? "selected-row" : ""}>
                       <td className="sticky-room-col">
-                        <button type="button" className="link-button room-name-button" onClick={() => onSelect(room.id)}>{room.name}</button>
+                        <button
+                          type="button"
+                          className="link-button room-name-button"
+                          aria-expanded={isExpanded}
+                          onClick={() => handleRoomNameClick(room.id)}
+                        >
+                          {room.name}
+                        </button>
                       </td>
                       <td><span className="system-pill">{room.systemType}</span></td>
                       <td>{room.width} x {room.length} cm</td>
@@ -3576,17 +3622,23 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
                         </div>
                       </td>
                     </tr>
+                    {isExpanded ? (
+                      <tr className="room-metrics-row">
+                        <td colSpan={15}>
+                          <div className="room-metrics-detail" aria-label={`Показатели за ${room.name}`}>
+                            <ResultCards result={result} room={room} />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
         <div className="rooms-card-list">
-          {rooms.map((room) => {
-                const result = calc(cloneRoom(room), constants);
-                const cutPlan = buildSafeCutPlan(room, result, constants);
-                const optimizedCdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null;
-                const optimizedUdProfiles = cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null;
+          {roomRows.map(({ room, result, optimizedCdProfiles, optimizedUdProfiles }) => {
                 return (
               <article key={room.id} className={room.id === activeRoomId ? "room-card selected" : "room-card"}>
                 <button type="button" className="link-button room-card-title" onClick={() => onSelect(room.id)}>{room.name}</button>
@@ -3624,7 +3676,9 @@ function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
           <p className="eyebrow">Материали</p>
           <h2>Общо за всички стаи</h2>
         </div>
-        <button type="button" className="ghost small" disabled={!rows.length} onClick={onExportExcel}>Експорт</button>
+        <div className="room-table-actions">
+          <button type="button" className="ghost" disabled={!rows.length} onClick={onExportExcel}>Експорт</button>
+        </div>
       </div>
       <div className="reserve-field">
         <NumberInput label="Резерв (%)" value={constants.wastePercent} step={0.1} onChange={onReserveChange} />
