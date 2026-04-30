@@ -2445,8 +2445,13 @@ function getOptimizedProfileExplanation(item: MaterialTakeoffItem): string | und
   return undefined;
 }
 
-export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstants = DEFAULT_CONSTANTS): MaterialTakeoffItem[] {
+export function buildMaterialTakeoff(
+  rooms: Room[],
+  constants: CalculatorConstants = DEFAULT_CONSTANTS,
+  options: { includeOptimizedQuantities?: boolean } = {},
+): MaterialTakeoffItem[] {
   constants = withDefaultConstants(constants);
+  const includeOptimizedQuantities = options.includeOptimizedQuantities ?? true;
   const map = new Map<string, MaterialTakeoffItem>();
   const systems = new Set<SystemType>();
   const optimizedProfileCache = new Map<string, OptimizedProfileRoomData>();
@@ -2735,7 +2740,9 @@ export function buildMaterialTakeoff(rooms: Room[], constants: CalculatorConstan
   const singleSystemPrefix = systems.size === 1 ? `${Array.from(systems)[0]} ` : "";
 
   return Array.from(map.values()).map((item) => {
-    const optimizedQuantity = countOptimizedProfileBars(item, rooms, constants, optimizedProfileCache);
+    const optimizedQuantity = includeOptimizedQuantities
+      ? countOptimizedProfileBars(item, rooms, constants, optimizedProfileCache)
+      : undefined;
     return {
       ...item,
       label: singleSystemPrefix && item.label.startsWith(singleSystemPrefix)

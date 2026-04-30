@@ -1,4 +1,4 @@
-import { ChangeEvent, Fragment, ReactNode, useMemo, useState } from "react";
+import { ChangeEvent, Fragment, memo, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalcResult,
   CalculatorConstants,
@@ -48,6 +48,7 @@ import {
   estimateLoadKgPerM2,
   syncSpacingFromKnaufTable,
 } from "./domain/calculator";
+import { buildCalculationCacheKey, readCalculationCache, writeCalculationCache } from "./calculationCache";
 
 const STORAGE_KEY = "d113-calculator-v2";
 const BGN_PER_EUR = 1.95583;
@@ -88,10 +89,70 @@ type AppSection = "room" | "settings" | "materials" | "help";
 type RoomWorkspacePanel = "visual" | "materials" | "cut" | "installation" | "validations";
 type CutOptimizationMode = "room" | "global";
 type ExportContentType = "room-cards" | "table" | "installation-guide";
+type ToastKind = "success" | "error" | "info";
+type ToastMessage = {
+  id: string;
+  kind: ToastKind;
+  title: string;
+  detail?: string;
+};
+type WorkerToastStatus = "loading" | "done" | "error";
+type WorkerToastMessage = {
+  id: string;
+  title: string;
+  detail: string;
+  status: WorkerToastStatus;
+};
+type WorkerStatusEventDetail = WorkerToastMessage | { id: string; status: "dismiss" };
+type OptimizedProfileCounts = { cd: number | null; ud: number | null };
+type CutOptimizationWorkerResponse =
+  | {
+      type: "room-cut-optimization-result";
+      requestId: string;
+      rows: Record<string, OptimizedProfileCounts>;
+      global: OptimizedProfileCounts;
+    }
+  | {
+      type: "room-cut-optimization-error";
+      requestId: string;
+      error: string;
+    }
+  | {
+      type: "cut-plan-result";
+      requestId: string;
+      plan: CutOptimizationResult;
+    }
+  | {
+      type: "cut-plan-error";
+      requestId: string;
+      error: string;
+    }
+  | {
+      type: "material-takeoff-result";
+      requestId: string;
+      rows: MaterialTakeoffItem[];
+    }
+  | {
+      type: "material-takeoff-error";
+      requestId: string;
+      error: string;
+    };
+
+const INACTIVE_CUT_PLAN: CutPlanState = {
+  plan: null,
+  error: "Разкроят се изчислява при отваряне на таб Разкрой.",
+};
 type RoomCardExportFileType = "pdf" | "png" | "html";
 type InstallationGuideExportFileType = "pdf" | "html";
 type TableExportFileType = "excel" | "json" | "html";
 type ExportFileType = RoomCardExportFileType | InstallationGuideExportFileType | TableExportFileType;
+
+const WORKER_STATUS_EVENT = "scc-worker-status";
+const WORKER_TIMEOUT_MS = 30000;
+
+function emitWorkerStatus(detail: WorkerStatusEventDetail): void {
+  window.dispatchEvent(new CustomEvent<WorkerStatusEventDetail>(WORKER_STATUS_EVENT, { detail }));
+}
 
 interface CatalogPriceEstimate {
   price: number;
@@ -1707,6 +1768,8 @@ function syncDistanceOverride(room: Room, key: "a" | "b" | "c" | "udAnchorSpacin
 
 function App() {
   const [state, setState] = useState<AppState>(() => loadState());
+  const [pendingRoom, setPendingRoom] = useState<Room>(() => cloneRoom(state.draftRoom));
+  const [pendingConstants, setPendingConstants] = useState<CalculatorConstants>(() => ({ ...state.constants }));
   const [zoom, setZoom] = useState(1);
   const [saveStatus, setSaveStatus] = useState("");
   const [exportDirectoryName, setExportDirectoryName] = useState(DEFAULT_EXPORT_DIRECTORY_NAME);
@@ -1720,16 +1783,188 @@ function App() {
   const [roomWorkspacePanel, setRoomWorkspacePanel] = useState<RoomWorkspacePanel>("visual");
   const [cutOptimizationMode, setCutOptimizationMode] = useState<CutOptimizationMode>("room");
   const [installationGuideRoomId, setInstallationGuideRoomId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [workerToasts, setWorkerToasts] = useState<WorkerToastMessage[]>([]);
+  const [cutPlanState, setCutPlanState] = useState<CutPlanState>(INACTIVE_CUT_PLAN);
+  const [isCutPlanLoading, setIsCutPlanLoading] = useState(false);
+  const toastTimers = useRef<Record<string, number>>({});
+  const workerToastTimers = useRef<Record<string, number>>({});
 
   const activeRoom = state.draftRoom;
   const activeResult = useMemo(() => calc(cloneRoom(activeRoom), state.constants), [activeRoom, state.constants]);
-  const activeCutPlan = useMemo(() => buildSafeCutPlan(activeRoom, activeResult, state.constants), [activeRoom, activeResult, state.constants]);
-  const globalCutPlan = useMemo(() => buildSafeGlobalCutPlan(state.rooms, state.constants), [state.rooms, state.constants]);
+  const shouldShowCutPlan = activeSection === "room" && roomWorkspacePanel === "cut";
   const activeWarnings = useMemo(() => getValidationWarnings(cloneRoom(activeRoom)), [activeRoom]);
   const isValid = !activeWarnings.some((warning) => warning.severity === "error");
   const installationGuideRoom = installationGuideRoomId
     ? state.rooms.find((room) => room.id === installationGuideRoomId) ?? null
     : null;
+
+  function dismissToast(id: string): void {
+    const timer = toastTimers.current[id];
+    if (timer) {
+      window.clearTimeout(timer);
+      delete toastTimers.current[id];
+    }
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function notify(kind: ToastKind, title: string, detail?: string): void {
+    const id = crypto.randomUUID();
+    setToasts((current) => [...current.slice(-3), { id, kind, title, detail }]);
+    toastTimers.current[id] = window.setTimeout(() => dismissToast(id), kind === "error" ? 6000 : 3600);
+  }
+
+  useEffect(() => {
+    function handleWorkerStatus(event: Event): void {
+      const detail = (event as CustomEvent<WorkerStatusEventDetail>).detail;
+      if (!detail?.id) return;
+      const existingTimer = workerToastTimers.current[detail.id];
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+        delete workerToastTimers.current[detail.id];
+      }
+      if (detail.status === "dismiss") {
+        setWorkerToasts((current) => current.filter((toast) => toast.id !== detail.id));
+        return;
+      }
+      setWorkerToasts((current) => {
+        const next = current.filter((toast) => toast.id !== detail.id);
+        return [...next, detail].slice(-5);
+      });
+      if (detail.status !== "loading") {
+        workerToastTimers.current[detail.id] = window.setTimeout(() => {
+          delete workerToastTimers.current[detail.id];
+          setWorkerToasts((current) => current.filter((toast) => toast.id !== detail.id));
+        }, 1200);
+      }
+    }
+
+    window.addEventListener(WORKER_STATUS_EVENT, handleWorkerStatus);
+    return () => {
+      window.removeEventListener(WORKER_STATUS_EVENT, handleWorkerStatus);
+      Object.values(workerToastTimers.current).forEach((timer) => window.clearTimeout(timer));
+      workerToastTimers.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShowCutPlan) {
+      setIsCutPlanLoading(false);
+      setCutPlanState(INACTIVE_CUT_PLAN);
+      return;
+    }
+    if (cutOptimizationMode === "global" && !state.rooms.length) {
+      setIsCutPlanLoading(false);
+      setCutPlanState({ plan: null, error: "Няма запазени стаи за общ разкрой." });
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    const cacheInput = cutOptimizationMode === "global"
+      ? { mode: "global", rooms: state.rooms, constants: state.constants }
+      : { mode: "room", room: activeRoom, constants: state.constants };
+    const cacheKey = buildCalculationCacheKey("cut-plan", cacheInput);
+    const workerToastId = `cut-plan-${cacheKey}`;
+    let worker: Worker | null = null;
+    let isCurrent = true;
+    let timeoutId: number | null = null;
+
+    void readCalculationCache<CutOptimizationResult>(cacheKey).then((cachedPlan) => {
+      if (!isCurrent) return;
+      if (cachedPlan) {
+        setIsCutPlanLoading(false);
+        setCutPlanState({ plan: cachedPlan, error: null });
+        return;
+      }
+
+      worker = new Worker(new URL("./cutOptimizationWorker.ts", import.meta.url), { type: "module" });
+      timeoutId = window.setTimeout(() => {
+        if (!isCurrent || !worker) return;
+        isCurrent = false;
+        worker.terminate();
+        setIsCutPlanLoading(false);
+        setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой отне твърде дълго и беше прекъснат." }));
+        emitWorkerStatus({
+          id: workerToastId,
+          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+          detail: "Прекъснато след твърде дълго изчисление.",
+          status: "error",
+        });
+      }, WORKER_TIMEOUT_MS);
+
+      setIsCutPlanLoading(true);
+      setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
+      emitWorkerStatus({
+        id: workerToastId,
+        title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+        detail: "Прекалкулиране...",
+        status: "loading",
+      });
+
+      worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
+        if (!isCurrent || event.data.requestId !== requestId) return;
+        if (event.data.type === "cut-plan-result") {
+          setCutPlanState({ plan: event.data.plan, error: null });
+          void writeCalculationCache(cacheKey, event.data.plan);
+          emitWorkerStatus({
+            id: workerToastId,
+            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+            detail: "Готово",
+            status: "done",
+          });
+        } else if (event.data.type === "cut-plan-error") {
+          const error = event.data.error;
+          setCutPlanState((current) => (current.plan ? current : { plan: null, error }));
+          emitWorkerStatus({
+            id: workerToastId,
+            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+            detail: error,
+            status: "error",
+          });
+        }
+        setIsCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.onerror = () => {
+        if (!isCurrent) return;
+        setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой не може да бъде стартиран." }));
+        setIsCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        emitWorkerStatus({
+          id: workerToastId,
+          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+          detail: "Фоновият разкрой не може да бъде стартиран.",
+          status: "error",
+        });
+        worker?.terminate();
+      };
+
+      worker.postMessage(cutOptimizationMode === "global"
+        ? {
+            type: "optimize-cut-plan",
+            requestId,
+            mode: "global",
+            rooms: state.rooms,
+            constants: state.constants,
+          }
+        : {
+            type: "optimize-cut-plan",
+            requestId,
+            mode: "room",
+            room: activeRoom,
+            constants: state.constants,
+          });
+    });
+
+    return () => {
+      isCurrent = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      worker?.terminate();
+      emitWorkerStatus({ id: workerToastId, status: "dismiss" });
+    };
+  }, [activeRoom, cutOptimizationMode, shouldShowCutPlan, state.constants, state.rooms]);
 
   function commit(updater: (draft: AppState) => void): void {
     setState((current) => {
@@ -1746,55 +1981,128 @@ function App() {
     });
   }
 
-  function saveCurrentState(): void {
-    commit((draft) => {
-      const room = cloneRoom(draft.draftRoom);
-      const index = draft.rooms.findIndex((item) => item.id === room.id);
-      if (index >= 0) {
-        draft.rooms[index] = room;
-      } else {
-        draft.rooms.push(room);
-      }
-      draft.activeRoomId = room.id;
-      draft.draftRoom = cloneRoom(room);
-    });
-    setSaveStatus("Запазено");
-    window.setTimeout(() => setSaveStatus(""), 1600);
+  function normalizeRoomForCalculation(source: Room): Room {
+    const room = cloneRoom(source);
+    applyAutoABC(room);
+    if (!room.overrides.area && room.width && room.length) {
+      room.area = (room.width * room.length) / 10000;
+    }
+    return room;
   }
 
-  function updateActiveRoom(updater: (room: Room) => void): void {
-    commit((draft) => {
-      const room = draft.draftRoom;
+  function previewCurrentRoom(): void {
+    try {
+      const room = normalizeRoomForCalculation(pendingRoom);
+      const next = {
+        ...state,
+        draftRoom: cloneRoom(room),
+        activeRoomId: room.id,
+      };
+      setState(next);
+      setPendingRoom(cloneRoom(room));
+      window.setTimeout(() => saveState(next), 0);
+      notify("info", "Прегледът е обновен", "Схемата и резултатите са изчислени по текущите незапазени промени.");
+    } catch {
+      notify("error", "Прегледът неуспешен", "Текущите параметри не могат да бъдат приложени.");
+    }
+  }
+
+  function saveCurrentState(): void {
+    try {
+      const room = normalizeRoomForCalculation(pendingRoom);
+      setState((current) => {
+        const next = {
+          rooms: current.rooms.map(cloneRoom),
+          draftRoom: cloneRoom(room),
+          constants: { ...current.constants },
+          materialPrices: { ...current.materialPrices },
+          activeRoomId: room.id,
+        };
+        const index = next.rooms.findIndex((item) => item.id === room.id);
+        if (index >= 0) {
+          next.rooms[index] = cloneRoom(room);
+        } else {
+          next.rooms.push(cloneRoom(room));
+        }
+        saveState(next);
+        return next;
+      });
+      setPendingRoom(cloneRoom(room));
+      setSaveStatus("Запазено");
+      notify("success", "Стаята е запазена", `${room.name} е обновена в списъка.`);
+      window.setTimeout(() => setSaveStatus(""), 1600);
+    } catch {
+      notify("error", "Стаята не е запазена", "Провери дали браузърът позволява запис в localStorage.");
+    }
+  }
+
+  function updatePendingRoom(updater: (room: Room) => void): void {
+    setPendingRoom((current) => {
+      const room = cloneRoom(current);
       updater(room);
-      applyAutoABC(room);
-      if (!room.overrides.area && room.width && room.length) {
-        room.area = (room.width * room.length) / 10000;
-      }
+      return room;
     });
+  }
+
+  function selectRoom(roomId: string): void {
+    const room = state.rooms.find((item) => item.id === roomId);
+    if (!room) return;
+    const nextRoom = cloneRoom(room);
+    const next = {
+      ...state,
+      draftRoom: cloneRoom(nextRoom),
+      activeRoomId: room.id,
+    };
+    setState(next);
+    setPendingRoom(cloneRoom(nextRoom));
+    window.setTimeout(() => saveState(next), 0);
+    setActiveSection("room");
+    setRoomWorkspacePanel("visual");
   }
 
   function addRoom(): void {
-    commit((draft) => {
-      const room = createRoom(`Стая ${draft.rooms.length + 1}`);
-      draft.draftRoom = room;
-      draft.activeRoomId = room.id;
-    });
+    try {
+      const room = createRoom(`Стая ${state.rooms.length + 1}`);
+      const next = {
+        ...state,
+        draftRoom: cloneRoom(room),
+        activeRoomId: room.id,
+      };
+      setState(next);
+      setPendingRoom(cloneRoom(room));
+      window.setTimeout(() => saveState(next), 0);
+      notify("info", "Създадена е нова стая", "Попълни параметрите и натисни Запази стая, за да я добавиш към списъка.");
+    } catch {
+      notify("error", "Новата стая не е създадена", "Провери дали браузърът позволява запис в localStorage.");
+    }
   }
 
   function deleteRoom(roomId: string): void {
-    commit((draft) => {
-      draft.rooms = draft.rooms.filter((room) => room.id !== roomId);
-      if (draft.activeRoomId === roomId) {
-        draft.activeRoomId = draft.draftRoom.id;
-      }
-    });
+    const roomName = state.rooms.find((room) => room.id === roomId)?.name ?? "Стаята";
+    try {
+      commit((draft) => {
+        draft.rooms = draft.rooms.filter((room) => room.id !== roomId);
+        if (draft.activeRoomId === roomId) {
+          draft.activeRoomId = draft.draftRoom.id;
+        }
+      });
+      notify("success", "Стаята е изтрита", roomName);
+    } catch {
+      notify("error", "Стаята не е изтрита", "Промяната не можа да бъде записана в браузъра.");
+    }
   }
 
   function deleteAllRooms(): void {
-    commit((draft) => {
-      draft.rooms = [];
-      draft.activeRoomId = draft.draftRoom.id;
-    });
+    const roomCount = state.rooms.length;
+    try {
+      commit((draft) => {
+        draft.rooms = [];
+        draft.activeRoomId = draft.draftRoom.id;
+      });
+      notify("success", "Всички стаи са изтрити", `${roomCount} стаи са премахнати от списъка.`);
+    } catch {
+      notify("error", "Стаите не са изтрити", "Промяната не можа да бъде записана в браузъра.");
+    }
   }
 
   function confirmDeleteAllRooms(): void {
@@ -1803,17 +2111,24 @@ function App() {
   }
 
   function recalculateSavedRooms(): void {
-    commit((draft) => {
-      draft.rooms = draft.rooms.map((room) => recalculateRoomWithCurrentLogic(room, draft.constants));
-      const activeRoom = draft.rooms.find((room) => room.id === draft.activeRoomId);
-      if (activeRoom) {
-        draft.draftRoom = cloneRoom(activeRoom);
-      }
-    });
+    try {
+      commit((draft) => {
+        draft.rooms = draft.rooms.map((room) => recalculateRoomWithCurrentLogic(room, draft.constants));
+        const activeRoom = draft.rooms.find((room) => room.id === draft.activeRoomId);
+        if (activeRoom) {
+          draft.draftRoom = cloneRoom(activeRoom);
+        }
+      });
+      const activeRoom = state.rooms.find((room) => room.id === state.activeRoomId);
+      if (activeRoom) setPendingRoom(recalculateRoomWithCurrentLogic(activeRoom, state.constants));
+      notify("success", "Стаите са прекалкулирани", `${state.rooms.length} запазени стаи са обновени с текущата логика.`);
+    } catch {
+      notify("error", "Прекалкулирането неуспешно", "Промените не можаха да бъдат записани.");
+    }
   }
 
   function changeSystem(systemType: SystemType): void {
-    updateActiveRoom((room) => {
+    updatePendingRoom((room) => {
       const construction = getConstruction(systemType);
       room.systemType = systemType;
       if (systemType === "D112") room.d112Variant = "double_cd";
@@ -1846,13 +2161,18 @@ function App() {
   }
 
   function resetAutoSpacing(): void {
-    updateActiveRoom((room) => {
-      room.overrides.a = false;
-      room.overrides.b = false;
-      room.overrides.c = false;
-      room.overrides.udAnchorSpacing = false;
-      syncSpacingFromKnaufTable(room, { keepC: false });
-    });
+    try {
+      updatePendingRoom((room) => {
+        room.overrides.a = false;
+        room.overrides.b = false;
+        room.overrides.c = false;
+        room.overrides.udAnchorSpacing = false;
+        syncSpacingFromKnaufTable(room, { keepC: false });
+      });
+      notify("info", "Разстоянията са върнати", pendingRoom.systemType === "CUSTOM" ? "Върнати са стандартните стойности." : "Върнати са стойностите по Knauf.");
+    } catch {
+      notify("error", "Разстоянията не са върнати", "Промяната не можа да бъде записана.");
+    }
   }
 
   function downloadBlob(blob: Blob, filename: string): void {
@@ -1906,7 +2226,12 @@ function App() {
         activeRoomId: draftRoom.id,
       };
       setState(next);
+      setPendingRoom(cloneRoom(draftRoom));
+      setPendingConstants({ ...next.constants });
       saveState(next);
+      notify("success", "JSON импортът е успешен", `Импортирани са ${rooms.length} стаи.`);
+    } catch (error) {
+      notify("error", "JSON импортът неуспешен", error instanceof Error ? error.message : "Файлът не може да бъде прочетен.");
     } finally {
       event.target.value = "";
     }
@@ -1941,21 +2266,33 @@ function App() {
       .map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="String">${escapeXml(cell)}</Data></Cell>`).join("")}</Row>`)
       .join("");
     const workbook = `<?xml version="1.0" encoding="UTF-8"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Материали"><Table>${sheetRows}</Table></Worksheet></Workbook>`;
-    downloadBlob(new Blob([workbook], { type: "application/vnd.ms-excel" }), "suspended-ceiling-materials-only.xls");
+    try {
+      downloadBlob(new Blob([workbook], { type: "application/vnd.ms-excel" }), "suspended-ceiling-materials-only.xls");
+      notify("success", "Материалите са експортирани", "Свален е Excel файл с общите материали.");
+    } catch {
+      notify("error", "Експортът на материали неуспешен", "Браузърът не позволи създаване на файл за сваляне.");
+    }
   }
 
   async function browseExportDestination(): Promise<void> {
     if (!window.showDirectoryPicker) {
       setExportStatus("Браузърът не поддържа избор на директория. При експорт файловете ще се свалят поотделно.");
+      notify("info", "Директория не може да се избере", "При експорт файловете ще се свалят поотделно.");
       return;
     }
     try {
       const handle = await window.showDirectoryPicker();
       setExportDirectoryHandle(handle);
       setExportStatus(`Избрана дестинация: ${handle.name}`);
+      notify("success", "Избрана е папка за експорт", handle.name);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") setExportStatus("Изборът на директория е отказан.");
-      else setExportStatus("Неуспешен избор на директория.");
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setExportStatus("Изборът на директория е отказан.");
+        notify("info", "Изборът на директория е отказан");
+      } else {
+        setExportStatus("Неуспешен избор на директория.");
+        notify("error", "Неуспешен избор на директория");
+      }
     }
   }
 
@@ -1964,10 +2301,27 @@ function App() {
     setExportFileType(contentType === "table" ? "excel" : "pdf");
   }
 
+  function savePendingConstants(): void {
+    try {
+      setState((current) => {
+        const next = {
+          ...current,
+          constants: { ...pendingConstants },
+        };
+        saveState(next);
+        return next;
+      });
+      notify("success", "Настройките са запазени", "Глобалните константи са приложени към изчисленията.");
+    } catch {
+      notify("error", "Настройките не са запазени", "Промените не можаха да бъдат записани.");
+    }
+  }
+
   async function exportRoomReports(): Promise<void> {
     if (!state.rooms.length) return;
     if (window.showDirectoryPicker && !exportDirectoryHandle) {
       setExportStatus("Първо избери дестинация с Browse.");
+      notify("error", "Липсва папка за експорт", "Първо избери дестинация с Browse.");
       return;
     }
     const directoryName = exportDirectoryName.trim() || DEFAULT_EXPORT_DIRECTORY_NAME;
@@ -2020,26 +2374,30 @@ function App() {
           await writable.close();
         }
         setExportStatus(`Експортирани ${reports.length} файла в "${directoryName}".`);
+        notify("success", "Експортът е готов", `Експортирани са ${reports.length} файла в "${directoryName}".`);
         setIsExportModalOpen(false);
       } else {
         reports.forEach((report) => {
           downloadBlob(report.blob, report.filename);
         });
         setExportStatus("Браузърът не поддържа избор на директория. Файловете са свалени поотделно.");
+        notify("success", "Експортът е готов", `Свалени са ${reports.length} файла поотделно.`);
         setIsExportModalOpen(false);
       }
       window.setTimeout(() => setExportStatus(""), 4000);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setExportStatus("Експортът е отказан.");
+        notify("info", "Експортът е отказан");
       } else {
         setExportStatus("Неуспешен експорт на файловете.");
+        notify("error", "Неуспешен експорт", "Провери разрешенията за папката или опитай сваляне поотделно.");
       }
       window.setTimeout(() => setExportStatus(""), 4000);
     }
   }
 
-  const loadClasses = getLoadClasses(activeRoom.systemType, activeRoom.fireProtection, activeRoom.d116Variant, activeRoom.d112Variant);
+  const loadClasses = getLoadClasses(pendingRoom.systemType, pendingRoom.fireProtection, pendingRoom.d116Variant, pendingRoom.d112Variant);
   const menuItems: Array<{ key: AppSection; label: string }> = [
     { key: "room", label: "Активна стая" },
     { key: "materials", label: "Общи материали" },
@@ -2075,12 +2433,13 @@ function App() {
             <div className="workspace-grid">
               <aside className="side-rail">
                 <RoomEditor
-                  room={activeRoom}
+                  room={pendingRoom}
                   loadClasses={loadClasses}
                   isValid={isValid}
                   warnings={activeWarnings}
                   onSystemChange={changeSystem}
                   onResetAuto={resetAutoSpacing}
+                  onPreview={previewCurrentRoom}
                   onSave={saveCurrentState}
                   saveStatus={saveStatus}
                   onAddRoom={() => {
@@ -2088,7 +2447,7 @@ function App() {
                     setActiveSection("room");
                     setRoomWorkspacePanel("visual");
                   }}
-                  onRoomChange={updateActiveRoom}
+                  onRoomChange={updatePendingRoom}
                 />
               </aside>
 
@@ -2102,14 +2461,7 @@ function App() {
                     setActiveSection("room");
                     setRoomWorkspacePanel("visual");
                   }}
-                  onSelect={(roomId) => commit((draft) => {
-                    const room = draft.rooms.find((item) => item.id === roomId);
-                    if (!room) return;
-                    draft.draftRoom = cloneRoom(room);
-                    draft.activeRoomId = room.id;
-                    setActiveSection("room");
-                    setRoomWorkspacePanel("visual");
-                  })}
+                  onSelect={selectRoom}
                   onDelete={deleteRoom}
                   onDeleteAll={() => setIsDeleteAllModalOpen(true)}
                   onRecalculate={recalculateSavedRooms}
@@ -2126,8 +2478,8 @@ function App() {
                   rooms={state.rooms}
                   zoom={zoom}
                   warnings={activeWarnings}
-                  activeCutPlan={activeCutPlan}
-                  globalCutPlan={globalCutPlan}
+                  cutPlan={cutPlanState}
+                  isCutPlanLoading={isCutPlanLoading}
                   cutOptimizationMode={cutOptimizationMode}
                   onZoomChange={setZoom}
                   onCutOptimizationModeChange={setCutOptimizationMode}
@@ -2139,8 +2491,9 @@ function App() {
 
         {activeSection === "settings" && (
           <ConstantsEditor
-            constants={state.constants}
-            onChange={(patch) => commit((draft) => { draft.constants = { ...draft.constants, ...patch }; })}
+            constants={pendingConstants}
+            onChange={(patch) => setPendingConstants((current) => ({ ...current, ...patch }))}
+            onSave={savePendingConstants}
           />
         )}
 
@@ -2148,7 +2501,9 @@ function App() {
           <MaterialsPanel
             rooms={state.rooms}
             constants={state.constants}
-            onReserveChange={(wastePercent) => commit((draft) => { draft.constants.wastePercent = wastePercent; })}
+            wastePercentDraft={pendingConstants.wastePercent}
+            onReserveChange={(wastePercent) => setPendingConstants((current) => ({ ...current, wastePercent }))}
+            onReserveSave={savePendingConstants}
             onExportExcel={exportMaterialsExcel}
           />
         )}
@@ -2187,15 +2542,48 @@ function App() {
         />
       )}
       {activeSection === "room" && (
-        <MobileActionBar
-          onSave={saveCurrentState}
-          onCut={() => setRoomWorkspacePanel("cut")}
+          <MobileActionBar
+            onSave={saveCurrentState}
+            onPreview={previewCurrentRoom}
+            onCut={() => setRoomWorkspacePanel("cut")}
           onMaterials={() => setRoomWorkspacePanel("materials")}
           onExport={() => setIsExportModalOpen(true)}
           canExport={Boolean(state.rooms.length)}
         />
       )}
+      <ToastViewport toasts={toasts} workerToasts={workerToasts} onDismiss={dismissToast} />
     </main>
+  );
+}
+
+function ToastViewport({ toasts, workerToasts, onDismiss }: {
+  toasts: ToastMessage[];
+  workerToasts: WorkerToastMessage[];
+  onDismiss: (id: string) => void;
+}) {
+  if (!toasts.length && !workerToasts.length) return null;
+  return (
+    <div className="toast-viewport" role="status" aria-live="polite" aria-relevant="additions text">
+      {workerToasts.map((toast) => (
+        <div key={toast.id} className={`toast worker-toast ${toast.status}`}>
+          <div>
+            <strong>{toast.title}</strong>
+            <p>{toast.detail}</p>
+          </div>
+        </div>
+      ))}
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast ${toast.kind}`}>
+          <div>
+            <strong>{toast.title}</strong>
+            {toast.detail ? <p>{toast.detail}</p> : null}
+          </div>
+          <button type="button" className="toast-close" aria-label="Затвори съобщението" onClick={() => onDismiss(toast.id)}>
+            x
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2311,8 +2699,106 @@ function InstallationGuideContent({ room, constants, mode }: {
 }) {
   const safeRoom = useMemo(() => cloneRoom(room), [room]);
   const result = useMemo(() => calc(safeRoom, constants), [safeRoom, constants]);
-  const cutPlan = useMemo(() => buildSafeCutPlan(safeRoom, result, constants), [safeRoom, result, constants]);
+  const [cutPlan, setCutPlan] = useState<CutPlanState>({ plan: null, error: "Прекалкулиране..." });
+  const [isCutPlanLoading, setIsCutPlanLoading] = useState(false);
   const guide = useMemo(() => buildInstallationGuide(safeRoom, result, constants, cutPlan.plan), [safeRoom, result, constants, cutPlan.plan]);
+
+  useEffect(() => {
+    const requestId = crypto.randomUUID();
+    const cacheKey = buildCalculationCacheKey("cut-plan", { mode: "installation-room", room: safeRoom, constants });
+    const workerToastId = `installation-cut-${cacheKey}`;
+    let worker: Worker | null = null;
+    let isCurrent = true;
+    let timeoutId: number | null = null;
+
+    void readCalculationCache<CutOptimizationResult>(cacheKey).then((cachedPlan) => {
+      if (!isCurrent) return;
+      if (cachedPlan) {
+        setCutPlan({ plan: cachedPlan, error: null });
+        setIsCutPlanLoading(false);
+        return;
+      }
+
+      worker = new Worker(new URL("./cutOptimizationWorker.ts", import.meta.url), { type: "module" });
+      timeoutId = window.setTimeout(() => {
+        if (!isCurrent || !worker) return;
+        isCurrent = false;
+        worker.terminate();
+        setCutPlan((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой отне твърде дълго и беше прекъснат." }));
+        setIsCutPlanLoading(false);
+        emitWorkerStatus({
+          id: workerToastId,
+          title: `Монтажни етапи: ${safeRoom.name}`,
+          detail: "Прекъснато след твърде дълго изчисление.",
+          status: "error",
+        });
+      }, WORKER_TIMEOUT_MS);
+
+      setIsCutPlanLoading(true);
+      setCutPlan((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
+      emitWorkerStatus({
+        id: workerToastId,
+        title: `Монтажни етапи: ${safeRoom.name}`,
+        detail: "Прекалкулиране...",
+        status: "loading",
+      });
+
+      worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
+        if (!isCurrent || event.data.requestId !== requestId) return;
+        if (event.data.type === "cut-plan-result") {
+          setCutPlan({ plan: event.data.plan, error: null });
+          void writeCalculationCache(cacheKey, event.data.plan);
+          emitWorkerStatus({
+            id: workerToastId,
+            title: `Монтажни етапи: ${safeRoom.name}`,
+            detail: "Готово",
+            status: "done",
+          });
+        } else if (event.data.type === "cut-plan-error") {
+          const error = event.data.error;
+          setCutPlan((current) => (current.plan ? current : { plan: null, error }));
+          emitWorkerStatus({
+            id: workerToastId,
+            title: `Монтажни етапи: ${safeRoom.name}`,
+            detail: error,
+            status: "error",
+          });
+        }
+        setIsCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.onerror = () => {
+        if (!isCurrent) return;
+        setCutPlan((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой не може да бъде стартиран." }));
+        setIsCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        emitWorkerStatus({
+          id: workerToastId,
+          title: `Монтажни етапи: ${safeRoom.name}`,
+          detail: "Фоновият разкрой не може да бъде стартиран.",
+          status: "error",
+        });
+        worker?.terminate();
+      };
+
+      worker.postMessage({
+        type: "optimize-cut-plan",
+        requestId,
+        mode: "room",
+        room: safeRoom,
+        constants,
+      });
+    });
+
+    return () => {
+      isCurrent = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      worker?.terminate();
+      emitWorkerStatus({ id: workerToastId, status: "dismiss" });
+    };
+  }, [safeRoom, constants]);
 
   return (
     <div className={`installation-guide ${mode}`}>
@@ -2320,6 +2806,12 @@ function InstallationGuideContent({ room, constants, mode }: {
         <InstallationSummary title="Данни" rows={guide.header} />
         <InstallationSummary title="Обобщение" rows={guide.summary} />
         <InstallationSummary title="Кратък разкрой" rows={getCutSummaryRows(cutPlan)} />
+        {isCutPlanLoading ? (
+          <section className="installation-summary">
+            <h3>Статус</h3>
+            <p className="hint">Прекалкулиране...</p>
+          </section>
+        ) : null}
         <section className="installation-notes">
           <h3>Бележки</h3>
           <ul>
@@ -2497,7 +2989,7 @@ function ResultTabs({ activeTab, onChange, warningCount }: {
   );
 }
 
-function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoom, warnings, activeCutPlan, globalCutPlan, cutOptimizationMode, onZoomChange, onCutOptimizationModeChange }: {
+const RoomWorkspacePanelView = memo(function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoom, warnings, cutPlan, isCutPlanLoading, cutOptimizationMode, onZoomChange, onCutOptimizationModeChange }: {
   activeTab: RoomWorkspacePanel;
   room: Room;
   result: CalcResult;
@@ -2505,8 +2997,8 @@ function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoo
   rooms: Room[];
   zoom: number;
   warnings: ReturnType<typeof getValidationWarnings>;
-  activeCutPlan: CutPlanState;
-  globalCutPlan: CutPlanState;
+  cutPlan: CutPlanState;
+  isCutPlanLoading: boolean;
   cutOptimizationMode: CutOptimizationMode;
   onZoomChange: (zoom: number) => void;
   onCutOptimizationModeChange: (mode: CutOptimizationMode) => void;
@@ -2519,10 +3011,11 @@ function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoo
       <CutOptimizationPanel
         room={room}
         result={result}
-        cutPlan={cutOptimizationMode === "room" ? activeCutPlan : globalCutPlan}
+        cutPlan={cutPlan}
         constants={constants}
         mode={cutOptimizationMode}
         rooms={rooms}
+        isLoading={isCutPlanLoading}
         onModeChange={onCutOptimizationModeChange}
       />
     );
@@ -2552,10 +3045,124 @@ function RoomWorkspacePanelView({ activeTab, room, result, constants, rooms, zoo
       onZoomChange={onZoomChange}
     />
   );
+});
+
+function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants, title: string) {
+  const [materialState, setMaterialState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    rows: MaterialTakeoffItem[];
+    error: string | null;
+  }>({ status: "idle", rows: [], error: null });
+
+  useEffect(() => {
+    if (!rooms.length) {
+      setMaterialState({ status: "idle", rows: [], error: null });
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    const cacheKey = buildCalculationCacheKey("material-takeoff", { rooms, constants });
+    const workerToastId = `material-takeoff-${cacheKey}`;
+    let worker: Worker | null = null;
+    let isCurrent = true;
+    let timeoutId: number | null = null;
+
+    void readCalculationCache<MaterialTakeoffItem[]>(cacheKey).then((cachedRows) => {
+      if (!isCurrent) return;
+      if (cachedRows) {
+        setMaterialState({ status: "ready", rows: cachedRows, error: null });
+        return;
+      }
+
+      worker = new Worker(new URL("./cutOptimizationWorker.ts", import.meta.url), { type: "module" });
+      timeoutId = window.setTimeout(() => {
+        if (!isCurrent || !worker) return;
+        isCurrent = false;
+        worker.terminate();
+        setMaterialState((current) => ({
+          status: "error",
+          rows: current.rows,
+          error: "Фоновият материален списък отне твърде дълго и беше прекъснат.",
+        }));
+        emitWorkerStatus({
+          id: workerToastId,
+          title,
+          detail: "Прекъснато след твърде дълго изчисление.",
+          status: "error",
+        });
+      }, WORKER_TIMEOUT_MS);
+
+      setMaterialState((current) => ({ status: "loading", rows: current.rows, error: null }));
+      emitWorkerStatus({
+        id: workerToastId,
+        title,
+        detail: "Прекалкулиране...",
+        status: "loading",
+      });
+
+      worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
+        if (!isCurrent || event.data.requestId !== requestId) return;
+        if (event.data.type === "material-takeoff-result") {
+          setMaterialState({ status: "ready", rows: event.data.rows, error: null });
+          void writeCalculationCache(cacheKey, event.data.rows);
+          emitWorkerStatus({
+            id: workerToastId,
+            title,
+            detail: "Готово",
+            status: "done",
+          });
+        } else if (event.data.type === "material-takeoff-error") {
+          const error = event.data.error;
+          setMaterialState((current) => ({ status: "error", rows: current.rows, error }));
+          emitWorkerStatus({
+            id: workerToastId,
+            title,
+            detail: error,
+            status: "error",
+          });
+        } else {
+          return;
+        }
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.onerror = () => {
+        if (!isCurrent) return;
+        setMaterialState((current) => ({ status: "error", rows: current.rows, error: "Фоновият материален списък не може да бъде стартиран." }));
+        if (timeoutId) window.clearTimeout(timeoutId);
+        emitWorkerStatus({
+          id: workerToastId,
+          title,
+          detail: "Фоновият материален списък не може да бъде стартиран.",
+          status: "error",
+        });
+        worker?.terminate();
+      };
+
+      worker.postMessage({
+        type: "build-material-takeoff",
+        requestId,
+        rooms,
+        constants,
+      });
+    });
+
+    return () => {
+      isCurrent = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      worker?.terminate();
+      emitWorkerStatus({ id: workerToastId, status: "dismiss" });
+    };
+  }, [rooms, constants, title]);
+
+  return materialState;
 }
 
 function RoomMaterialsPanel({ room, constants }: { room: Room; constants: CalculatorConstants }) {
-  const rows = useMemo(() => buildMaterialTakeoff([room], constants), [room, constants]);
+  const workerRooms = useMemo(() => [room], [room]);
+  const materialState = useMaterialTakeoffWorker(workerRooms, constants, `Материали: ${room.name}`);
+  const rows = materialState.rows;
   return (
     <section className="panel result-panel">
       <div className="panel-title">
@@ -2564,6 +3171,8 @@ function RoomMaterialsPanel({ room, constants }: { room: Room; constants: Calcul
           <h2>Материали за {room.name}</h2>
         </div>
       </div>
+      {materialState.status === "loading" ? <p className="hint">Прекалкулиране...</p> : null}
+      {materialState.status === "error" ? <div className="validation-item error">{materialState.error}</div> : null}
       <MaterialCardList rows={rows} rooms={[room]} constants={constants} />
     </section>
   );
@@ -2631,8 +3240,9 @@ function RoomValidationPanel({ warnings, room }: { warnings: ReturnType<typeof g
   );
 }
 
-function MobileActionBar({ onSave, onCut, onMaterials, onExport, canExport }: {
+function MobileActionBar({ onSave, onPreview, onCut, onMaterials, onExport, canExport }: {
   onSave: () => void;
+  onPreview: () => void;
   onCut: () => void;
   onMaterials: () => void;
   onExport: () => void;
@@ -2640,7 +3250,8 @@ function MobileActionBar({ onSave, onCut, onMaterials, onExport, canExport }: {
 }) {
   return (
     <nav className="mobile-action-bar" aria-label="Бързи действия">
-      <button type="button" onClick={onSave}>Запази</button>
+      <button type="button" onClick={onSave}>Запази стая</button>
+      <button type="button" className="ghost" onClick={onPreview}>Преглед</button>
       <button type="button" className="ghost" onClick={onCut}>Разкрой</button>
       <button type="button" className="ghost" onClick={onMaterials}>Материали</button>
       <button type="button" className="ghost" disabled={!canExport} onClick={onExport}>Експорт</button>
@@ -2648,26 +3259,29 @@ function MobileActionBar({ onSave, onCut, onMaterials, onExport, canExport }: {
   );
 }
 
-function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, onModeChange }: {
+function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, isLoading, onModeChange }: {
   room: Room;
   result: CalcResult;
   cutPlan: CutPlanState;
   constants: CalculatorConstants;
   mode: CutOptimizationMode;
   rooms: Room[];
+  isLoading: boolean;
   onModeChange: (mode: CutOptimizationMode) => void;
 }) {
   const isGlobalMode = mode === "global";
   const title = isGlobalMode ? "Общ разкрой за всички стаи" : `Разкрой за ${room.name}`;
-  const savedRoomsProfileCounts = rooms.reduce((sum, savedRoom) => {
+  const savedRoomsProfileCounts = useMemo(() => rooms.reduce((sum, savedRoom) => {
     const savedResult = calc(savedRoom, constants);
     sum.cd += savedResult.cdTotalProfiles;
     sum.ud += savedResult.udProfiles;
     return sum;
-  }, { cd: 0, ud: 0 });
+  }, { cd: 0, ud: 0 }), [rooms, constants]);
   const currentCdProfiles = isGlobalMode ? savedRoomsProfileCounts.cd : result.cdTotalProfiles;
   const currentUdProfiles = isGlobalMode ? savedRoomsProfileCounts.ud : result.udProfiles;
   const currentProfiles = currentCdProfiles + currentUdProfiles;
+  const cdCutBars = useMemo(() => cutPlan.plan?.bars.filter(isCdCutBar) ?? [], [cutPlan.plan]);
+  const udCutBars = useMemo(() => cutPlan.plan?.bars.filter(isUdCutBar) ?? [], [cutPlan.plan]);
   const modeToggle = (
     <div className="cut-mode-toggle" role="group" aria-label="Режим на разкрой">
       <button
@@ -2697,10 +3311,16 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
           </div>
         </div>
         {modeToggle}
-        <div className="validation-item error">
-          Разкроят не може да се изчисли с текущия layout и зададените дължини на профилите.
-          {" "}
-          {cutPlan.error}
+        <div className={isLoading ? "validation-item" : "validation-item error"}>
+          {isLoading
+            ? "Прекалкулиране... Разкроят се изчислява във фонов режим."
+            : (
+              <>
+                Разкроят не може да се изчисли с текущия layout и зададените дължини на профилите.
+                {" "}
+                {cutPlan.error}
+              </>
+            )}
         </div>
       </section>
     );
@@ -2713,8 +3333,8 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
     : 0;
   const totalPurchasedLengthCm = plan.bars.reduce((sum, bar) => sum + bar.stockLengthCm, 0);
   const stockLengthCm = plan.bars[0]?.stockLengthCm ?? Math.max(constants.cdLength, constants.udLength) * 100;
-  const optimizedCdBars = plan.bars.filter(isCdCutBar).length;
-  const optimizedUdBars = plan.bars.filter(isUdCutBar).length;
+  const optimizedCdBars = cdCutBars.length;
+  const optimizedUdBars = udCutBars.length;
   const summarySubject = isGlobalMode ? "всички запазени стаи" : room.name;
   const summaryText = savedBars > 0
     ? `С този разкрой за ${summarySubject} спестяваш ${savedBars} стандартни профила (${formatNumber(savedPercent)} %) спрямо простото броене ${currentProfiles} бр., като подрежда CD профилите отделно от UD профилите.`
@@ -2733,6 +3353,11 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
         </div>
       </div>
       {modeToggle}
+      {isLoading ? (
+        <div className="validation-item">
+          Прекалкулиране... Показан е последният готов разкрой, докато новият се изчислява във фонов режим.
+        </div>
+      ) : null}
 
       <div className="cut-plan-metrics">
         <div className="cut-metric">
@@ -2789,8 +3414,8 @@ function CutOptimizationPanel({ room, result, cutPlan, constants, mode, rooms, o
       </div>
 
       <div className="cut-bar-groups">
-        <CutBarGroup title="Разкрой CD профили" bars={plan.bars.filter(isCdCutBar)} showRoomNames={isGlobalMode} />
-        <CutBarGroup title="Разкрой UD профили" bars={plan.bars.filter(isUdCutBar)} showRoomNames={isGlobalMode} />
+        <CutBarGroup title="Разкрой CD профили" bars={cdCutBars} showRoomNames={isGlobalMode} />
+        <CutBarGroup title="Разкрой UD профили" bars={udCutBars} showRoomNames={isGlobalMode} />
       </div>
     </section>
   );
@@ -2900,13 +3525,14 @@ interface RoomEditorProps {
   warnings: ReturnType<typeof getValidationWarnings>;
   onSystemChange: (systemType: SystemType) => void;
   onResetAuto: () => void;
+  onPreview: () => void;
   onSave: () => void;
   saveStatus: string;
   onAddRoom: () => void;
   onRoomChange: (updater: (room: Room) => void) => void;
 }
 
-function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onResetAuto, onSave, saveStatus, onAddRoom, onRoomChange }: RoomEditorProps) {
+function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onResetAuto, onPreview, onSave, saveStatus, onAddRoom, onRoomChange }: RoomEditorProps) {
   const construction = CONSTRUCTION_TYPES[room.systemType];
   const d112Variant = room.d112Variant ?? "double_cd";
   const d116Variant = room.d116Variant ?? "ua_cd";
@@ -3191,7 +3817,8 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
       </details>
       <div className="room-save-row">
         {saveStatus && <span className="save-status">{saveStatus}</span>}
-        <button type="button" className="workspace-toggle-button" onClick={onSave}>Save</button>
+        <button type="button" className="ghost preview-button" onClick={onPreview}>Прегледай</button>
+        <button type="button" className="workspace-toggle-button" onClick={onSave}>Запази стая</button>
       </div>
     </section>
   );
@@ -3251,7 +3878,11 @@ function FireCertificationPanel({ check }: { check: ReturnType<typeof getFireCer
   );
 }
 
-function ConstantsEditor({ constants, onChange }: { constants: CalculatorConstants; onChange: (patch: Partial<CalculatorConstants>) => void }) {
+function ConstantsEditor({ constants, onChange, onSave }: {
+  constants: CalculatorConstants;
+  onChange: (patch: Partial<CalculatorConstants>) => void;
+  onSave: () => void;
+}) {
   return (
     <section className="panel compact settings-panel">
       <div className="panel-title">
@@ -3259,6 +3890,7 @@ function ConstantsEditor({ constants, onChange }: { constants: CalculatorConstan
           <p className="eyebrow">Глобални константи</p>
           <h2>Настройки</h2>
         </div>
+        <button type="button" className="workspace-toggle-button" onClick={onSave}>Запази</button>
       </div>
       <div className="settings-groups">
         <SettingsGroup title="Профили и летви" note="Дължини на покупните елементи за профили/летви. Използват се за броя цели бройки.">
@@ -3483,20 +4115,25 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
   onImportJson: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenInstallationGuide: (roomId: string) => void;
 }) {
+  const [cutOptimizationState, setCutOptimizationState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    rows: Record<string, OptimizedProfileCounts>;
+    global: OptimizedProfileCounts;
+    error: string | null;
+  }>({
+    status: "idle",
+    rows: {},
+    global: { cd: null, ud: null },
+    error: null,
+  });
   const roomRows = useMemo(() => rooms.map((room) => {
     const result = calc(cloneRoom(room), constants);
-    const cutPlan = buildSafeCutPlan(room, result, constants);
     return {
       room,
       result,
-      cutPlan,
-      optimizedCdProfiles: cutPlan.plan ? cutPlan.plan.bars.filter(isCdCutBar).length : null,
-      optimizedUdProfiles: cutPlan.plan ? cutPlan.plan.bars.filter(isUdCutBar).length : null,
     };
   }), [rooms, constants]);
-  const totals = useMemo(() => {
-    const globalCutPlan = buildSafeGlobalCutPlan(rooms, constants);
-    return roomRows.reduce((sum, { room, result }) => ({
+  const totals = useMemo(() => roomRows.reduce((sum, { room, result }) => ({
       area: sum.area + (Number(room.area) || 0),
       cdProfiles: sum.cdProfiles + result.cdTotalProfiles,
       udProfiles: sum.udProfiles + result.udProfiles,
@@ -3504,8 +4141,6 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
       hangers: sum.hangers + result.hangersTotal,
       anchors: sum.anchors + result.anchorsTotal,
       screws: sum.screws + result.metalScrews + result.drywallScrews,
-      optimizedCdProfiles: globalCutPlan.plan ? globalCutPlan.plan.bars.filter(isCdCutBar).length : null,
-      optimizedUdProfiles: globalCutPlan.plan ? globalCutPlan.plan.bars.filter(isUdCutBar).length : null,
     }), {
       area: 0,
       cdProfiles: 0,
@@ -3514,11 +4149,108 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
       hangers: 0,
       anchors: 0,
       screws: 0,
-      optimizedCdProfiles: null as number | null,
-      optimizedUdProfiles: null as number | null,
-    });
-  }, [roomRows, rooms, constants]);
+    }), [roomRows]);
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!rooms.length) {
+      setCutOptimizationState({ status: "idle", rows: {}, global: { cd: null, ud: null }, error: null });
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    const cacheKey = buildCalculationCacheKey("room-table-cuts", { rooms, constants });
+    let worker: Worker | null = null;
+    let isCurrent = true;
+    let timeoutId: number | null = null;
+
+    void readCalculationCache<{
+      rows: Record<string, OptimizedProfileCounts>;
+      global: OptimizedProfileCounts;
+    }>(cacheKey).then((cached) => {
+      if (!isCurrent) return;
+      if (cached) {
+        setCutOptimizationState({ status: "ready", rows: cached.rows, global: cached.global, error: null });
+        return;
+      }
+
+      worker = new Worker(new URL("./cutOptimizationWorker.ts", import.meta.url), { type: "module" });
+      timeoutId = window.setTimeout(() => {
+        if (!isCurrent || !worker) return;
+        isCurrent = false;
+        worker.terminate();
+        setCutOptimizationState((current) => ({
+          status: "error",
+          rows: current.rows,
+          global: current.global,
+          error: "Фоновият разкрой отне твърде дълго и беше прекъснат.",
+        }));
+      }, WORKER_TIMEOUT_MS);
+
+      setCutOptimizationState((current) => ({
+        status: "loading",
+        rows: current.rows,
+        global: current.global,
+        error: null,
+      }));
+
+      worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
+        if (!isCurrent || event.data.requestId !== requestId) return;
+        if (event.data.type === "room-cut-optimization-result") {
+          const next = { rows: event.data.rows, global: event.data.global };
+          setCutOptimizationState({
+            status: "ready",
+            rows: next.rows,
+            global: next.global,
+            error: null,
+          });
+          void writeCalculationCache(cacheKey, next);
+        } else if (event.data.type === "room-cut-optimization-error") {
+          setCutOptimizationState({
+            status: "error",
+            rows: {},
+            global: { cd: null, ud: null },
+            error: event.data.error,
+          });
+        } else {
+          return;
+        }
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.onerror = () => {
+        if (!isCurrent) return;
+        setCutOptimizationState({
+          status: "error",
+          rows: {},
+          global: { cd: null, ud: null },
+          error: "Фоновият разкрой не може да бъде стартиран.",
+        });
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.postMessage({
+        type: "optimize-room-table-cuts",
+        requestId,
+        rooms,
+        constants,
+      });
+    });
+
+    return () => {
+      isCurrent = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      worker?.terminate();
+    };
+  }, [rooms, constants]);
+
+  function formatOptimizedCount(value: number | null | undefined): string {
+    if (cutOptimizationState.status === "loading") return value == null ? "..." : `${value}...`;
+    if (cutOptimizationState.status === "error") return "-";
+    return value == null ? "-" : String(value);
+  }
 
   function handleRoomNameClick(roomId: string): void {
     onSelect(roomId);
@@ -3533,8 +4265,10 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
           <h2>Количества по стаи</h2>
           <small className="rooms-summary-metrics">
             {rooms.length} стаи · {formatNumber(totals.area)} m2 · CD {totals.cdProfiles} бр.
-            {totals.optimizedCdProfiles != null ? ` (${totals.optimizedCdProfiles} след разкрой)` : ""} · UD {totals.udProfiles} бр.
-            {totals.optimizedUdProfiles != null ? ` (${totals.optimizedUdProfiles} след разкрой)` : ""} · Връзки {totals.crossConnectors} бр. · Окачвачи {totals.hangers} бр. · Дюбели {totals.anchors} бр. · Винтове {totals.screws} бр.
+            {cutOptimizationState.status !== "idle" ? ` (${formatOptimizedCount(cutOptimizationState.global.cd)} след разкрой)` : ""} · UD {totals.udProfiles} бр.
+            {cutOptimizationState.status !== "idle" ? ` (${formatOptimizedCount(cutOptimizationState.global.ud)} след разкрой)` : ""} · Връзки {totals.crossConnectors} бр. · Окачвачи {totals.hangers} бр. · Дюбели {totals.anchors} бр. · Винтове {totals.screws} бр.
+            {cutOptimizationState.status === "loading" ? " · Прекалкулиране..." : ""}
+            {cutOptimizationState.status === "error" ? ` · Разкрой: ${cutOptimizationState.error}` : ""}
           </small>
         </div>
         <div className="room-table-actions">
@@ -3545,7 +4279,7 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
         </div>
       </div>
       {!rooms.length ? (
-        <p className="empty-state">Няма запазени стаи. Активната стая ще се появи тук след Save.</p>
+        <p className="empty-state">Няма запазени стаи. Активната стая ще се появи тук след Запази стая.</p>
       ) : (
         <>
         <div className="table-scroll rooms-table-scroll">
@@ -3587,8 +4321,9 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
               </tr>
             </thead>
             <tbody>
-              {roomRows.map(({ room, result, optimizedCdProfiles, optimizedUdProfiles }) => {
+              {roomRows.map(({ room, result }) => {
                 const isExpanded = expandedRoomId === room.id;
+                const optimized = cutOptimizationState.rows[room.id];
                 return (
                   <Fragment key={room.id}>
                     <tr className={room.id === activeRoomId ? "selected-row" : ""}>
@@ -3608,9 +4343,9 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
                       <td>{result.bearingCount}</td>
                       <td>{result.mountingCount}</td>
                       <td>{result.cdTotalProfiles}</td>
-                      <td>{optimizedCdProfiles ?? "-"}</td>
+                      <td>{formatOptimizedCount(optimized?.cd)}</td>
                       <td>{result.udProfiles}</td>
-                      <td>{optimizedUdProfiles ?? "-"}</td>
+                      <td>{formatOptimizedCount(optimized?.ud)}</td>
                       <td>{result.crossConnectors}</td>
                       <td>{result.hangersTotal}</td>
                       <td>{result.anchorsTotal}</td>
@@ -3638,15 +4373,16 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
           </table>
         </div>
         <div className="rooms-card-list">
-          {roomRows.map(({ room, result, optimizedCdProfiles, optimizedUdProfiles }) => {
+          {roomRows.map(({ room, result }) => {
+                const optimized = cutOptimizationState.rows[room.id];
                 return (
               <article key={room.id} className={room.id === activeRoomId ? "room-card selected" : "room-card"}>
                 <button type="button" className="link-button room-card-title" onClick={() => onSelect(room.id)}>{room.name}</button>
                 <p>{room.systemType} · {room.width} x {room.length} cm · {formatNumber(room.area)} m2</p>
                 <div className="room-card-metrics">
-                  <span>CD: <strong>{result.cdTotalProfiles}</strong>{optimizedCdProfiles != null ? <small>опт. {optimizedCdProfiles}</small> : null}</span>
+                  <span>CD: <strong>{result.cdTotalProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.cd)}</small></span>
                   <span>Окачвачи: <strong>{result.hangersTotal}</strong></span>
-                  <span>UD: <strong>{result.udProfiles}</strong>{optimizedUdProfiles != null ? <small>опт. {optimizedUdProfiles}</small> : null}</span>
+                  <span>UD: <strong>{result.udProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.ud)}</small></span>
                 </div>
                 <div className="row-actions">
                   <button type="button" className="ghost small" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
@@ -3662,13 +4398,16 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
   );
 }
 
-function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
+function MaterialsPanel({ rooms, constants, wastePercentDraft, onReserveChange, onReserveSave, onExportExcel }: {
   rooms: Room[];
   constants: CalculatorConstants;
+  wastePercentDraft: number;
   onReserveChange: (wastePercent: number) => void;
+  onReserveSave: () => void;
   onExportExcel: () => void;
 }) {
-  const rows = useMemo(() => buildMaterialTakeoff(rooms, constants), [rooms, constants]);
+  const materialState = useMaterialTakeoffWorker(rooms, constants, "Общи материали");
+  const rows = materialState.rows;
   return (
     <section className="panel materials-panel">
       <div className="panel-title">
@@ -3677,12 +4416,15 @@ function MaterialsPanel({ rooms, constants, onReserveChange, onExportExcel }: {
           <h2>Общо за всички стаи</h2>
         </div>
         <div className="room-table-actions">
+          <button type="button" className="ghost" onClick={onReserveSave}>Запази</button>
           <button type="button" className="ghost" disabled={!rows.length} onClick={onExportExcel}>Експорт</button>
         </div>
       </div>
       <div className="reserve-field">
-        <NumberInput label="Резерв (%)" value={constants.wastePercent} step={0.1} onChange={onReserveChange} />
+        <NumberInput label="Резерв (%)" value={wastePercentDraft} step={0.1} onChange={onReserveChange} />
       </div>
+      {materialState.status === "loading" ? <p className="hint">Прекалкулиране...</p> : null}
+      {materialState.status === "error" ? <div className="validation-item error">{materialState.error}</div> : null}
       <MaterialCardList rows={rows} rooms={rooms} constants={constants} />
     </section>
   );
@@ -3694,6 +4436,104 @@ function HelpPanel() {
       <div className="panel-title">
         <div>
           <p className="eyebrow">Help</p>
+          <h2>Помощ за работа с калкулатора</h2>
+        </div>
+      </div>
+      <div className="help-intro">
+        <article>
+          <h3>За какво служи приложението</h3>
+          <p>
+            Калкулаторът помага при предварително оразмеряване на окачени тавани Knauf D11.
+            Можеш да въведеш една или повече стаи, да избереш конструкция, натоварване,
+            обшивка и разстояния, след което приложението изчислява профили, окачвачи,
+            крепежи, материали и разкрой.
+          </p>
+          <p>
+            Резултатите са работен помощник за планиране и количествени сметки. За изпълнение
+            на обект винаги сверявай системния детайл, актуалната документация на производителя
+            и конкретните условия на монтажа.
+          </p>
+        </article>
+        <article>
+          <h3>Как се работи</h3>
+          <p>
+            В екрана <strong>Активна стая</strong> въвеждаш текущата стая. Промяната на полетата
+            не стартира тежко преизчисляване веднага. Натисни <strong>Прегледай</strong>, за да
+            видиш как изглеждат текущите промени без запис, или <strong>Запази стая</strong>, за да
+            запазиш стаята и да обновиш зависимите изчисления.
+          </p>
+          <p>
+            Запазените стаи се виждат в таблицата. Натискането върху име на стая я зарежда като
+            активна. Бутоните за изтриване махат съответната стая или целия списък и показват
+            потвърждение/съобщение за резултата.
+          </p>
+        </article>
+        <article>
+          <h3>Екрани и панели</h3>
+          <ul>
+            <li><strong>Активна стая</strong> - редакция, визуализация, материали за стаята, разкрой, монтажни стъпки и проверки.</li>
+            <li><strong>Общи материали</strong> - обединява материалите за всички запазени стаи и позволява резерв и експорт.</li>
+            <li><strong>Настройки</strong> - глобални дължини, резерви и други константи. Промените се прилагат след <strong>Запази</strong>.</li>
+            <li><strong>Помощ</strong> - обяснения за работа, означения и основни сценарии.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Какво правят основните бутони</h3>
+          <ul>
+            <li><strong>Нова стая</strong> създава празна активна стая за въвеждане.</li>
+            <li><strong>Прегледай</strong> прилага текущите промени само за визуализация и резултати на екрана.</li>
+            <li><strong>Запази стая</strong> записва активната стая в списъка и стартира нужните преизчисления.</li>
+            <li><strong>Запази</strong> в настройки или материали прилага съответните глобални промени.</li>
+            <li><strong>Експорт</strong> сваля таблици, материали или монтажни данни във файл.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Фонови изчисления и съобщения</h3>
+          <p>
+            По-тежките операции, като общ разкрой и общи материали, се изпращат към worker във
+            фонов режим. Докато работят, долу на екрана се показва статус. Старите резултати
+            остават видими, докато новите станат готови.
+          </p>
+          <p>
+            Вече изчислените резултати се пазят в браузъра и се използват повторно, когато
+            входните данни не са променени. Ново прекалкулиране се прави при промяна на стая,
+            запазване на глобални настройки, промяна на резерв или друг параметър, от който
+            зависят материалите и разкроите.
+          </p>
+        </article>
+      </div>
+      <div className="help-workflows">
+        <h3>Основни работни потоци</h3>
+        <ol>
+          <li>
+            <strong>Бърза проверка на една стая:</strong> въведи размери и конструкция, натисни
+            <strong> Прегледай</strong>, прегледай визуализацията и резултатите, после натисни
+            <strong> Запази стая</strong>, ако искаш да я запазиш.
+          </li>
+          <li>
+            <strong>Количествена сметка за няколко стаи:</strong> запази всяка стая поотделно,
+            отвори <strong>Общи материали</strong>, избери резерв и натисни <strong>Запази</strong>.
+            След това използвай <strong>Експорт</strong>.
+          </li>
+          <li>
+            <strong>Промяна на глобални дължини или настройки:</strong> отвори <strong>Настройки</strong>,
+            промени стойностите и натисни <strong>Запази</strong>. Приложението ще обнови само
+            зависимите изчисления.
+          </li>
+          <li>
+            <strong>Проверка на разкрой:</strong> отвори активната стая, избери панел
+            <strong> Разкрой</strong> и изчакай фоновото изчисление. Ако вече е изчисляван със
+            същите входни данни, резултатът се зарежда от кеша.
+          </li>
+          <li>
+            <strong>Подготовка за монтаж:</strong> запази стаята, отвори панел <strong>Монтаж</strong>
+            и прегледай стъпките, профилите и разкроя за текущата стая.
+          </li>
+        </ol>
+      </div>
+      <div className="panel-title help-theory-title">
+        <div>
+          <p className="eyebrow">Справочник</p>
           <h2>Теория и означения</h2>
         </div>
       </div>

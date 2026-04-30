@@ -339,6 +339,93 @@ h3 {
   flex-wrap: wrap;
 }
 
+.toast-viewport {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 40;
+  display: grid;
+  gap: 0.55rem;
+  width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.65rem;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--primary);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.toast.success {
+  border-left-color: var(--primary);
+}
+
+.toast.info {
+  border-left-color: var(--gold);
+}
+
+.toast.error {
+  border-left-color: var(--accent);
+  background: #fff8f8;
+}
+
+.toast.worker-toast {
+  border-left-color: #2563eb;
+  background: #f8fbff;
+}
+
+.toast.worker-toast.loading {
+  border-left-color: var(--gold);
+}
+
+.toast.worker-toast.done {
+  border-left-color: var(--primary);
+}
+
+.toast.worker-toast.error {
+  border-left-color: var(--accent);
+  background: #fff8f8;
+}
+
+.toast strong {
+  display: block;
+  font-size: 0.88rem;
+}
+
+.toast p {
+  margin: 0.22rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.toast-close {
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.toast-close:hover {
+  background: #f1f5f3;
+  color: var(--ink);
+  box-shadow: none;
+}
+
 .installation-guide {
   display: grid;
   gap: 0.8rem;
@@ -533,6 +620,12 @@ h3 {
   justify-content: flex-end;
   gap: 0.45rem;
   margin-top: 0.55rem;
+}
+
+.preview-button {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
 }
 
 .room-table-actions {
@@ -1765,6 +1858,56 @@ th {
   margin-top: 0.65rem;
 }
 
+.help-intro {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.help-intro article,
+.help-workflows {
+  border-top: 3px solid rgba(15, 118, 110, 0.35);
+  padding-top: 0.65rem;
+}
+
+.help-intro h3,
+.help-workflows h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.98rem;
+}
+
+.help-intro p,
+.help-intro li,
+.help-workflows li {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.help-intro p {
+  margin: 0 0 0.5rem;
+}
+
+.help-intro ul,
+.help-workflows ol {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.help-intro li,
+.help-workflows li {
+  margin-bottom: 0.45rem;
+}
+
+.help-workflows {
+  margin-bottom: 1rem;
+}
+
+.help-theory-title {
+  margin-top: 0.35rem;
+}
+
 .help-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1802,6 +1945,7 @@ th {
 @media (max-width: 1180px) {
   .workspace-grid,
   .results-section,
+  .help-intro,
   .help-grid {
     grid-template-columns: 1fr;
   }
@@ -1913,7 +2057,7 @@ th {
     left: 0.6rem;
     z-index: 16;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.4rem;
     border: 1px solid var(--line);
     border-radius: 18px;
@@ -1926,6 +2070,13 @@ th {
     min-height: 44px;
     padding: 0.45rem 0.3rem;
     font-size: 0.76rem;
+  }
+
+  .toast-viewport {
+    right: 0.6rem;
+    bottom: 5.25rem;
+    left: 0.6rem;
+    width: auto;
   }
 
   .topbar-actions {
