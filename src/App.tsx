@@ -112,36 +112,36 @@ type WorkerStatusEventDetail = WorkerToastMessage | { id: string; status: "dismi
 type OptimizedProfileCounts = { cd: number | null; ud: number | null };
 type CutOptimizationWorkerResponse =
   | {
-      type: "room-cut-optimization-result";
-      requestId: string;
-      rows: Record<string, OptimizedProfileCounts>;
-      global: OptimizedProfileCounts;
-    }
+    type: "room-cut-optimization-result";
+    requestId: string;
+    rows: Record<string, OptimizedProfileCounts>;
+    global: OptimizedProfileCounts;
+  }
   | {
-      type: "room-cut-optimization-error";
-      requestId: string;
-      error: string;
-    }
+    type: "room-cut-optimization-error";
+    requestId: string;
+    error: string;
+  }
   | {
-      type: "cut-plan-result";
-      requestId: string;
-      plan: CutOptimizationResult;
-    }
+    type: "cut-plan-result";
+    requestId: string;
+    plan: CutOptimizationResult;
+  }
   | {
-      type: "cut-plan-error";
-      requestId: string;
-      error: string;
-    }
+    type: "cut-plan-error";
+    requestId: string;
+    error: string;
+  }
   | {
-      type: "material-takeoff-result";
-      requestId: string;
-      rows: MaterialTakeoffItem[];
-    }
+    type: "material-takeoff-result";
+    requestId: string;
+    rows: MaterialTakeoffItem[];
+  }
   | {
-      type: "material-takeoff-error";
-      requestId: string;
-      error: string;
-    };
+    type: "material-takeoff-error";
+    requestId: string;
+    error: string;
+  };
 
 const INACTIVE_CUT_PLAN: CutPlanState = {
   plan: null,
@@ -169,6 +169,7 @@ type ExportFileType = RoomCardExportFileType | InstallationGuideExportFileType |
 
 const WORKER_STATUS_EVENT = "scc-worker-status";
 const WORKER_TIMEOUT_MS = 30000;
+const MATERIAL_TAKEOFF_CACHE_VERSION = 9;
 
 function emitWorkerStatus(detail: WorkerStatusEventDetail): void {
   window.dispatchEvent(new CustomEvent<WorkerStatusEventDetail>(WORKER_STATUS_EVENT, { detail }));
@@ -231,7 +232,7 @@ const KNAUF_PRODUCT_CATALOG: KnaufCatalogProduct[] = [
   {
     id: "single_level_connector_cd",
     knaufName: "Кръстата връзка за едно ниво за CD 60/27",
-    matchTerms: ["връзки на едно ниво"],
+    matchTerms: ["кръстата връзка за едно ниво", "връзки на едно ниво"],
     estimate: { price: 1.84, source: "Polaris, връзка за едно ниво CD 60/27" },
     priceSources: [{ url: "https://polaris-bg.com/bg/krystata-vryzka-cd-60-27-edno-nivo-knauf/p301.html", source: "Polaris, връзка едно ниво CD" }],
   },
@@ -505,29 +506,29 @@ function renderWorkingSchemeSvg(room: Room, result: CalcResult, constants: Calcu
     <text x="${pad + gridW - 8}" y="${pad + gridH + 18}" class="axis-label" text-anchor="end">L ${result.L.toFixed(0)} cm</text>
     <text x="${pad + gridW - 8}" y="${pad + gridH + 36}" class="axis-label" text-anchor="end">W ${result.W.toFixed(0)} cm</text>
     ${hangerPositions.map((hanger, index) => {
-      const x = pad + hanger * xScale;
-      const labelY = pad - 26 - ((index % 2) * 13);
-      return `<g><line x1="${x}" y1="${pad - 18}" x2="${x}" y2="${pad}" class="hanger-dimension-line" /><text x="${x}" y="${labelY}" class="hanger-label" text-anchor="middle">${Math.round(hanger)} cm</text></g>`;
-    }).join("")}
+    const x = pad + hanger * xScale;
+    const labelY = pad - 26 - ((index % 2) * 13);
+    return `<g><line x1="${x}" y1="${pad - 18}" x2="${x}" y2="${pad}" class="hanger-dimension-line" /><text x="${x}" y="${labelY}" class="hanger-label" text-anchor="middle">${Math.round(hanger)} cm</text></g>`;
+  }).join("")}
     ${extensionPositions.map((extension, index) => {
-      const x = pad + extension * xScale;
-      const labelY = pad + gridH + 39 + ((index % 2) * 13);
-      return `<g><line x1="${x}" y1="${pad + gridH}" x2="${x}" y2="${pad + gridH + 24}" class="extension-dimension-line" /><text x="${x}" y="${labelY}" class="extension-label" text-anchor="middle">${Math.round(extension)} cm</text></g>`;
-    }).join("")}
+    const x = pad + extension * xScale;
+    const labelY = pad + gridH + 39 + ((index % 2) * 13);
+    return `<g><line x1="${x}" y1="${pad + gridH}" x2="${x}" y2="${pad + gridH + 24}" class="extension-dimension-line" /><text x="${x}" y="${labelY}" class="extension-label" text-anchor="middle">${Math.round(extension)} cm</text></g>`;
+  }).join("")}
     ${mountingPositions.map((position) => {
-      const x = pad + position * xScale;
-      return `<g><line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + gridH}" class="mounting-line" /><text x="${x + 6}" y="${pad + 18}" class="position-label">${Math.round(position)}</text></g>`;
-    }).join("")}
+    const x = pad + position * xScale;
+    return `<g><line x1="${x}" y1="${pad}" x2="${x}" y2="${pad + gridH}" class="mounting-line" /><text x="${x + 6}" y="${pad + 18}" class="position-label">${Math.round(position)}</text></g>`;
+  }).join("")}
     ${bearingPositions.map((position, lineIndex) => {
-      const y = pad + position * yScale;
-      const lineExtensions = extensionLayout.find((line) => line.lineIndex === lineIndex)?.pointsCm ?? [];
-      return `<g>
+    const y = pad + position * yScale;
+    const lineExtensions = extensionLayout.find((line) => line.lineIndex === lineIndex)?.pointsCm ?? [];
+    return `<g>
         <line x1="${pad}" y1="${y}" x2="${pad + gridW}" y2="${y}" class="bearing-line" />
         <text x="${pad + 8}" y="${y - 7}" class="position-label bearing">${Math.round(position)}</text>
         ${hangerPositions.map((hanger) => `<circle cx="${pad + hanger * xScale}" cy="${y}" r="5" class="hanger-dot" />`).join("")}
         ${lineExtensions.map((extension) => `<line x1="${pad + extension * xScale}" y1="${y - 12}" x2="${pad + extension * xScale}" y2="${y + 12}" class="extension-mark" />`).join("")}
       </g>`;
-    }).join("")}
+  }).join("")}
   </svg>`;
 }
 
@@ -573,6 +574,7 @@ function sumRoomResults(rooms: Room[], constants: CalculatorConstants) {
     total.metalScrews += result.metalScrews;
     total.drywallScrews += result.drywallScrews;
     total.extensions += result.extensionsTotal;
+    total.trennFixHangerLength += result.hangersTotal * constants.trennFixPerHangerCm / 100;
     total.boardLayers += boardLayers;
     return total;
   }, {
@@ -591,6 +593,7 @@ function sumRoomResults(rooms: Room[], constants: CalculatorConstants) {
     metalScrews: 0,
     drywallScrews: 0,
     extensions: 0,
+    trennFixHangerLength: 0,
     boardLayers: 0,
   });
 }
@@ -607,9 +610,9 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
 
   if (row.key.includes("cd-60-27") && !row.key.includes("connectors")) {
     if (row.key.startsWith("d116-")) {
-      return `${roomText}: ${formatNumber(totals.mountingLength)} m монтажни CD. Бройките са по дължина на CD профил ${constants.cdLength} m.${reserve}`;
+      return `${roomText}: ${formatNumber(totals.mountingLength)} m монтажни CD. Геометричната бройка е общата дължина, разделена на CD профил ${constants.cdLength} m.${reserve}`;
     }
-    return `${roomText}: общо ${formatNumber(totals.cdLength)} m CD профили - ${formatNumber(totals.bearingLength)} m носещи и ${formatNumber(totals.mountingLength)} m монтажни. Бройките са закръглени към цели профили по ${constants.cdLength} m.${reserve}`;
+    return `${roomText}: общо ${formatNumber(totals.cdLength)} m CD профили - ${formatNumber(totals.bearingLength)} m носещи и ${formatNumber(totals.mountingLength)} m монтажни. Геометричната бройка е общата дължина, разделена на CD профил ${constants.cdLength} m.${reserve}`;
   }
 
   if (row.key.includes("ua-50-40")) {
@@ -648,15 +651,15 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
   }
 
   if (row.key.includes("anchors-ud") || row.key.includes("perimeter-anchors")) {
-    return `${roomText}: дюбели по периметъра ${formatNumber(totals.udLength)} m, средна стъпка около ${averageUdSpacing} mm. Ъглите не се броят двойно. Общо по геометрия: ${totals.anchorsUd} бр.${reserve}`;
+    return `${roomText}: трябват ${totals.anchorsUd} бр. Fischer DuoPower 6мм дюбели за ${formatNumber(totals.udLength)} m UD профил по периметъра, при стъпка ${averageUdSpacing} mm. Количеството е в опаковки x50. Ъглите не се броят двойно.${reserve}`;
   }
 
   if (row.key.includes("anchors-hangers")) {
-    return `${roomText}: по един дюбел за всеки окачвач. Окачвачи общо: ${totals.hangers} бр.${reserve}`;
+    return `${roomText}: Метален дюбел пирон 6 x 35 mm за окачвачите - ${totals.hangers} окачвачи x ${constants.anchorsPerDirectHanger} бр.${reserve}`;
   }
 
-  if (row.key.includes("metal-screws")) {
-    return `${roomText}: винтове за връзки и окачвачи - ${totals.crossConnectors} връзки x ${constants.metalScrewsPerCrossConnector} бр. плюс ${totals.hangers} окачвачи x ${constants.metalScrewsPerDirectHanger} бр.${reserve}`;
+  if (row.key.includes("ln-sheet-metal-screws-box")) {
+    return `${roomText}: Винт за ламарина LN 3,5 x 11 mm/1000бр кутия. Общо метални винтове за CD: ${totals.metalScrews} бр. - ${totals.crossConnectors} връзки x ${constants.metalScrewsPerCrossConnector}, ${totals.extensions} съединителя x ${constants.metalScrewsPerProfileExtension}.${reserve}`;
   }
 
   if (row.key.includes("tn-screws")) {
@@ -680,7 +683,7 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
   }
 
   if (row.key.includes("trenn-fix")) {
-    return `${roomText}: ${formatNumber(totals.udLength)} m периметър x коефициент ${constants.trennFixPerimeterMultiplier}.${reserve}`;
+    return `${roomText}: ${formatNumber(totals.udLength)} m UD периметър + ${formatNumber(totals.trennFixHangerLength)} m за окачвачи към тавана (${totals.hangers} бр. x ${constants.trennFixPerHangerCm} cm), после x коефициент ${constants.trennFixPerimeterMultiplier}.${reserve}`;
   }
 
   if (row.key.includes("mineral-wool")) {
@@ -704,16 +707,24 @@ function buildMaterialCalculationInfo(row: MaterialTakeoffItem, rooms: Room[], c
 }
 
 function formatMaterialQuantity(row: MaterialTakeoffItem): string {
+  if (row.optimizedQuantity != null) {
+    const optimized = `${formatNumber(row.optimizedQuantity)} ${row.unit}`;
+    if (row.optimizedQuantity === row.quantity) return optimized;
+    return `${optimized} (геом.: ${formatNumber(row.quantity)} ${row.unit})`;
+  }
   const base = `${formatNumber(row.quantity)} ${row.unit}`;
-  if (row.optimizedQuantity == null) return base;
-  return `${base} (след разкрой: ${formatNumber(row.optimizedQuantity)} ${row.unit})`;
+  return base;
 }
 
 function buildMaterialExplanation(row: MaterialTakeoffItem, rooms: Room[], constants: CalculatorConstants): string {
   const parts = [buildMaterialCalculationInfo(row, rooms, constants)];
   if (row.optimizedExplanation) parts.push(row.optimizedExplanation);
-  if (row.optimizedQuantity != null && row.optimizedQuantity > row.quantity) {
-    parts.push("Оптимизираният разкрой изисква повече профили заради реалните дължини на отделните парчета.");
+  if (row.optimizedQuantity != null) {
+    if (row.optimizedQuantity > row.quantity) {
+      parts.push("Покупната бройка е по оптимизирания разкрой, защото реалните дължини на отделните парчета изискват повече профили от чистото деление на общите метри.");
+    } else if (row.optimizedQuantity < row.quantity) {
+      parts.push("Покупната бройка е по оптимизирания разкрой, който използва остатъците между редове и стаи.");
+    }
   }
   return parts.join(" ");
 }
@@ -830,8 +841,8 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
     markup += `<text x="${x}" y="${y + 16}" class="table-label">${escapeHtml(group.title)}</text>`;
     y += 24;
     group.bars.forEach((bar) => {
-    const barH = 42;
-    markup += `<g>
+      const barH = 42;
+      markup += `<g>
       <text x="${x}" y="${y + 15}" class="table-label">${escapeHtml(bar.id)} - ${escapeHtml(getCutPieceLabel(bar.type))} - ${formatNumber(bar.usedCm)} / ${formatNumber(bar.stockLengthCm)} cm</text>
       <rect x="${x}" y="${y + 21}" width="${width}" height="18" class="cut-bg" />
       ${bar.segments.map((segment) => {
@@ -844,12 +855,12 @@ function renderSvgCutPlan(cutPlan: CutPlanState, result: CalcResult, startY: num
         </g>`;
       }).join("")}
       ${bar.wasteCm > 0 ? (() => {
-        const wx = x + (bar.usedCm / bar.stockLengthCm) * width;
-        const ww = Math.max(1, (bar.wasteCm / bar.stockLengthCm) * width);
-        return `<g><rect x="${wx}" y="${y + 21}" width="${ww}" height="18" class="cut-waste" />${ww >= 28 ? `<text x="${wx + ww / 2}" y="${y + 35}" class="cut-waste-label" text-anchor="middle">${Math.round(bar.wasteCm)}</text>` : ""}</g>`;
-      })() : ""}
+          const wx = x + (bar.usedCm / bar.stockLengthCm) * width;
+          const ww = Math.max(1, (bar.wasteCm / bar.stockLengthCm) * width);
+          return `<g><rect x="${wx}" y="${y + 21}" width="${ww}" height="18" class="cut-waste" />${ww >= 28 ? `<text x="${wx + ww / 2}" y="${y + 35}" class="cut-waste-label" text-anchor="middle">${Math.round(bar.wasteCm)}</text>` : ""}</g>`;
+        })() : ""}
     </g>`;
-    y += barH;
+      y += barH;
     });
   });
 
@@ -883,9 +894,9 @@ function renderHtmlCutPlan(cutPlan: CutPlanState, result: CalcResult, showRoomNa
           <div class="cut-bar-head"><strong>${escapeHtml(bar.id)}</strong><span>${escapeHtml(getCutPieceLabel(bar.type))}</span><small>${formatNumber(bar.usedCm)} / ${formatNumber(bar.stockLengthCm)} cm</small></div>
           <div class="cut-strip">
             ${bar.segments.map((segment) => {
-              const label = getCutSegmentDisplayLabel(bar, segment.pieceId, segment.lengthCm, showRoomNames);
-              return `<div class="cut-piece ${segment.type}" title="${escapeHtml(label)}" style="width:${(segment.lengthCm / bar.stockLengthCm) * 100}%">${escapeHtml(label)}</div>`;
-            }).join("")}
+      const label = getCutSegmentDisplayLabel(bar, segment.pieceId, segment.lengthCm, showRoomNames);
+      return `<div class="cut-piece ${segment.type}" title="${escapeHtml(label)}" style="width:${(segment.lengthCm / bar.stockLengthCm) * 100}%">${escapeHtml(label)}</div>`;
+    }).join("")}
             ${bar.wasteCm > 0 ? `<div class="cut-piece waste" style="width:${(bar.wasteCm / bar.stockLengthCm) * 100}%">${Math.round(bar.wasteCm)}</div>` : ""}
           </div>
         </article>`).join("")}
@@ -1303,7 +1314,7 @@ function buildInstallationGuide(
   const reserveMultiplier = 1 + constants.wastePercent / 100;
   const jointTapeLength = Number((Number(room.area) * constants.jointTapePerM2 * reserveMultiplier).toFixed(2));
   const jointCompoundKg = Number((Number(room.area) * constants.jointCompoundKgPerM2 * reserveMultiplier).toFixed(2));
-  const trennFixLength = Number((result.udTotalLength * constants.trennFixPerimeterMultiplier * reserveMultiplier).toFixed(2));
+  const trennFixLength = Number(((result.udTotalLength + (result.hangersTotal * constants.trennFixPerHangerCm / 100)) * constants.trennFixPerimeterMultiplier * reserveMultiplier).toFixed(2));
   const layout = buildSuspendedCeilingLayout({
     roomWidthCm: result.W,
     roomLengthCm: result.L,
@@ -1368,7 +1379,7 @@ function buildInstallationGuide(
       },
       {
         title: "Фугиране и довършване",
-        items: [`Фуголента: ${jointTapeLength} m`, `Шпакловка: ${jointCompoundKg} kg`, `Trenn-Fix: ${trennFixLength} m`],
+        items: [`Фуголента: ${jointTapeLength} m`, `Шпакловка: ${jointCompoundKg} kg`, `PE уплътняваща лента 30мм: ${trennFixLength} m`],
       },
     ],
     notes: [
@@ -1805,20 +1816,22 @@ function App() {
   const [installationGuideRoomId, setInstallationGuideRoomId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [workerToasts, setWorkerToasts] = useState<WorkerToastMessage[]>([]);
-  const [cutPlanState, setCutPlanState] = useState<CutPlanState>(INACTIVE_CUT_PLAN);
-  const [isCutPlanLoading, setIsCutPlanLoading] = useState(false);
+  const [roomCutPlanState, setRoomCutPlanState] = useState<CutPlanState>(INACTIVE_CUT_PLAN);
+  const [isRoomCutPlanLoading, setIsRoomCutPlanLoading] = useState(false);
+  const [globalCutPlanState, setGlobalCutPlanState] = useState<CutPlanState>({ plan: null, error: "Няма готов общ разкрой." });
+  const [isGlobalCutPlanLoading, setIsGlobalCutPlanLoading] = useState(false);
   const toastTimers = useRef<Record<string, number>>({});
   const workerToastTimers = useRef<Record<string, number>>({});
 
   const activeRoom = state.draftRoom;
   const activeResult = useMemo(() => calc(cloneRoom(activeRoom), state.constants), [activeRoom, state.constants]);
   const shouldShowCutPlan = activeSection === "room" && roomWorkspacePanel === "cut";
-  const cutPlanCacheInput = useMemo(() => cutOptimizationMode === "global"
-    ? { mode: "global", rooms: state.rooms, constants: state.constants }
-    : { mode: "room", room: activeRoom, constants: state.constants },
-    [activeRoom, cutOptimizationMode, state.constants, state.rooms]);
-  const cutPlanCacheKey = useMemo(() => buildCalculationCacheKey("cut-plan-state", cutPlanCacheInput), [cutPlanCacheInput]);
-  const cutPlanRoom = cutOptimizationMode === "room" ? activeRoom : null;
+  const roomCutPlanCacheInput = useMemo(() => ({ mode: "room", room: activeRoom, constants: state.constants }), [activeRoom, state.constants]);
+  const roomCutPlanCacheKey = useMemo(() => buildCalculationCacheKey("cut-plan-state", roomCutPlanCacheInput), [roomCutPlanCacheInput]);
+  const globalCutPlanCacheInput = useMemo(() => ({ mode: "global", rooms: state.rooms, constants: state.constants }), [state.constants, state.rooms]);
+  const globalCutPlanCacheKey = useMemo(() => buildCalculationCacheKey("cut-plan-state", globalCutPlanCacheInput), [globalCutPlanCacheInput]);
+  const displayedCutPlanState = cutOptimizationMode === "global" ? globalCutPlanState : roomCutPlanState;
+  const isDisplayedCutPlanLoading = cutOptimizationMode === "global" ? isGlobalCutPlanLoading : isRoomCutPlanLoading;
   const activeWarnings = useMemo(() => getValidationWarnings(cloneRoom(activeRoom)), [activeRoom]);
   const isValid = !activeWarnings.some((warning) => warning.severity === "error");
   const installationGuideRoom = installationGuideRoomId
@@ -1874,28 +1887,23 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!shouldShowCutPlan) {
-      setIsCutPlanLoading(false);
-      setCutPlanState(INACTIVE_CUT_PLAN);
-      return;
-    }
-    if (cutOptimizationMode === "global" && !state.rooms.length) {
-      setIsCutPlanLoading(false);
-      setCutPlanState({ plan: null, error: "Няма запазени стаи за общ разкрой." });
+    if (!state.rooms.length) {
+      setIsGlobalCutPlanLoading(false);
+      setGlobalCutPlanState({ plan: null, error: "Няма запазени стаи за общ разкрой." });
       return;
     }
 
     const requestId = crypto.randomUUID();
-    const workerToastId = `cut-plan-${cutPlanCacheKey}`;
+    const workerToastId = `global-cut-plan-${globalCutPlanCacheKey}`;
     let worker: Worker | null = null;
     let isCurrent = true;
     let timeoutId: number | null = null;
 
-    void readCalculationCache<unknown>(cutPlanCacheKey).then((cachedValue) => {
+    void readCalculationCache<unknown>(globalCutPlanCacheKey).then((cachedValue) => {
       if (!isCurrent) return;
       if (isCutPlanState(cachedValue)) {
-        setIsCutPlanLoading(false);
-        setCutPlanState(cachedValue);
+        setIsGlobalCutPlanLoading(false);
+        setGlobalCutPlanState(cachedValue);
         return;
       }
 
@@ -1904,22 +1912,22 @@ function App() {
         if (!isCurrent || !worker) return;
         isCurrent = false;
         worker.terminate();
-        setIsCutPlanLoading(false);
-        setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой отне твърде дълго и беше прекъснат." }));
+        setIsGlobalCutPlanLoading(false);
+        setGlobalCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият общ разкрой отне твърде дълго и беше прекъснат." }));
         emitWorkerStatus({
           id: workerToastId,
-          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
+          title: "Общ разкрой",
           detail: "Прекъснато след твърде дълго изчисление.",
           status: "error",
         });
       }, WORKER_TIMEOUT_MS);
 
-      setIsCutPlanLoading(true);
-      setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
+      setIsGlobalCutPlanLoading(true);
+      setGlobalCutPlanState((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
       emitWorkerStatus({
         id: workerToastId,
-        title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
-        detail: "Прекалкулиране...",
+        title: "Общ разкрой",
+        detail: "Прекалкулиране... Общият разкрой може да отнеме повече време.",
         status: "loading",
       });
 
@@ -1927,60 +1935,51 @@ function App() {
         if (!isCurrent || event.data.requestId !== requestId) return;
         if (event.data.type === "cut-plan-result") {
           const nextState: CutPlanState = { plan: event.data.plan, error: null };
-          setCutPlanState(nextState);
-          void writeCalculationCache(cutPlanCacheKey, nextState);
+          setGlobalCutPlanState(nextState);
+          void writeCalculationCache(globalCutPlanCacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
-            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
+            title: "Общ разкрой",
             detail: "Готово",
             status: "done",
           });
         } else if (event.data.type === "cut-plan-error") {
-          const error = event.data.error;
-          const nextState: CutPlanState = { plan: null, error };
-          setCutPlanState((current) => (current.plan ? current : nextState));
-          void writeCalculationCache(cutPlanCacheKey, nextState);
+          const nextState: CutPlanState = { plan: null, error: event.data.error };
+          setGlobalCutPlanState((current) => (current.plan ? current : nextState));
+          void writeCalculationCache(globalCutPlanCacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
-            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
-            detail: error,
+            title: "Общ разкрой",
+            detail: event.data.error,
             status: "error",
           });
         }
-        setIsCutPlanLoading(false);
+        setIsGlobalCutPlanLoading(false);
         if (timeoutId) window.clearTimeout(timeoutId);
         worker?.terminate();
       };
 
       worker.onerror = () => {
         if (!isCurrent) return;
-        setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой не може да бъде стартиран." }));
-        setIsCutPlanLoading(false);
+        setGlobalCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият общ разкрой не може да бъде стартиран." }));
+        setIsGlobalCutPlanLoading(false);
         if (timeoutId) window.clearTimeout(timeoutId);
         emitWorkerStatus({
           id: workerToastId,
-          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
-          detail: "Фоновият разкрой не може да бъде стартиран.",
+          title: "Общ разкрой",
+          detail: "Фоновият общ разкрой не може да бъде стартиран.",
           status: "error",
         });
         worker?.terminate();
       };
 
-      worker.postMessage(cutOptimizationMode === "global"
-        ? {
-            type: "optimize-cut-plan",
-            requestId,
-            mode: "global",
-            rooms: state.rooms,
-            constants: state.constants,
-          }
-        : {
-            type: "optimize-cut-plan",
-            requestId,
-            mode: "room",
-            room: cutPlanRoom ?? activeRoom,
-            constants: state.constants,
-          });
+      worker.postMessage({
+        type: "optimize-cut-plan",
+        requestId,
+        mode: "global",
+        rooms: state.rooms,
+        constants: state.constants,
+      });
     });
 
     return () => {
@@ -1989,7 +1988,112 @@ function App() {
       worker?.terminate();
       emitWorkerStatus({ id: workerToastId, status: "dismiss" });
     };
-  }, [cutOptimizationMode, cutPlanCacheKey, cutPlanRoom, shouldShowCutPlan, state.constants, state.rooms]);
+  }, [globalCutPlanCacheKey, state.constants, state.rooms]);
+
+  useEffect(() => {
+    if (!shouldShowCutPlan || cutOptimizationMode !== "room") {
+      setIsRoomCutPlanLoading(false);
+      setRoomCutPlanState(INACTIVE_CUT_PLAN);
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    const workerToastId = `room-cut-plan-${roomCutPlanCacheKey}`;
+    let worker: Worker | null = null;
+    let isCurrent = true;
+    let timeoutId: number | null = null;
+
+    void readCalculationCache<unknown>(roomCutPlanCacheKey).then((cachedValue) => {
+      if (!isCurrent) return;
+      if (isCutPlanState(cachedValue)) {
+        setIsRoomCutPlanLoading(false);
+        setRoomCutPlanState(cachedValue);
+        return;
+      }
+
+      worker = new Worker(new URL("./cutOptimizationWorker.ts", import.meta.url), { type: "module" });
+      timeoutId = window.setTimeout(() => {
+        if (!isCurrent || !worker) return;
+        isCurrent = false;
+        worker.terminate();
+        setIsRoomCutPlanLoading(false);
+        setRoomCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой отне твърде дълго и беше прекъснат." }));
+        emitWorkerStatus({
+          id: workerToastId,
+          title: `Разкрой: ${activeRoom.name}`,
+          detail: "Прекъснато след твърде дълго изчисление.",
+          status: "error",
+        });
+      }, WORKER_TIMEOUT_MS);
+
+      setIsRoomCutPlanLoading(true);
+      setRoomCutPlanState((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
+      emitWorkerStatus({
+        id: workerToastId,
+        title: `Разкрой: ${activeRoom.name}`,
+        detail: "Прекалкулиране...",
+        status: "loading",
+      });
+
+      worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
+        if (!isCurrent || event.data.requestId !== requestId) return;
+        if (event.data.type === "cut-plan-result") {
+          const nextState: CutPlanState = { plan: event.data.plan, error: null };
+          setRoomCutPlanState(nextState);
+          void writeCalculationCache(roomCutPlanCacheKey, nextState);
+          emitWorkerStatus({
+            id: workerToastId,
+            title: `Разкрой: ${activeRoom.name}`,
+            detail: "Готово",
+            status: "done",
+          });
+        } else if (event.data.type === "cut-plan-error") {
+          const error = event.data.error;
+          const nextState: CutPlanState = { plan: null, error };
+          setRoomCutPlanState((current) => (current.plan ? current : nextState));
+          void writeCalculationCache(roomCutPlanCacheKey, nextState);
+          emitWorkerStatus({
+            id: workerToastId,
+            title: `Разкрой: ${activeRoom.name}`,
+            detail: error,
+            status: "error",
+          });
+        }
+        setIsRoomCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        worker?.terminate();
+      };
+
+      worker.onerror = () => {
+        if (!isCurrent) return;
+        setRoomCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой не може да бъде стартиран." }));
+        setIsRoomCutPlanLoading(false);
+        if (timeoutId) window.clearTimeout(timeoutId);
+        emitWorkerStatus({
+          id: workerToastId,
+          title: `Разкрой: ${activeRoom.name}`,
+          detail: "Фоновият разкрой не може да бъде стартиран.",
+          status: "error",
+        });
+        worker?.terminate();
+      };
+
+      worker.postMessage({
+        type: "optimize-cut-plan",
+        requestId,
+        mode: "room",
+        room: activeRoom,
+        constants: state.constants,
+      });
+    });
+
+    return () => {
+      isCurrent = false;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      worker?.terminate();
+      emitWorkerStatus({ id: workerToastId, status: "dismiss" });
+    };
+  }, [activeRoom, cutOptimizationMode, roomCutPlanCacheKey, shouldShowCutPlan, state.constants]);
 
   function commit(updater: (draft: AppState) => void): void {
     setState((current) => {
@@ -2353,21 +2457,21 @@ function App() {
     const filenameCounts = new Map<string, number>();
     const reports = exportContentType === "table"
       ? [{
-          filename: exportFileType === "json" ? "rooms.json" : exportFileType === "html" ? "rooms.html" : "rooms.xls",
-          blob: exportFileType === "json" ? buildAppJsonBlob() : exportFileType === "html" ? buildRoomsHtmlBlob() : buildRoomsExcelBlob(),
-        }]
+        filename: exportFileType === "json" ? "rooms.json" : exportFileType === "html" ? "rooms.html" : "rooms.xls",
+        blob: exportFileType === "json" ? buildAppJsonBlob() : exportFileType === "html" ? buildRoomsHtmlBlob() : buildRoomsExcelBlob(),
+      }]
       : exportContentType === "installation-guide"
         ? await Promise.all(state.rooms.map(async (room) => {
-            const guideFileType = isInstallationGuideFileType(exportFileType) ? exportFileType : "pdf";
-            const baseName = sanitizeFilename(`${room.name || room.systemType} - монтажни етапи`);
-            const count = filenameCounts.get(baseName) ?? 0;
-            filenameCounts.set(baseName, count + 1);
-            const filename = `${baseName}${count ? `-${count + 1}` : ""}.${guideFileType}`;
-            return {
-              filename,
-              blob: await buildInstallationGuideBlob(room, state.constants, guideFileType),
-            };
-          }))
+          const guideFileType = isInstallationGuideFileType(exportFileType) ? exportFileType : "pdf";
+          const baseName = sanitizeFilename(`${room.name || room.systemType} - монтажни етапи`);
+          const count = filenameCounts.get(baseName) ?? 0;
+          filenameCounts.set(baseName, count + 1);
+          const filename = `${baseName}${count ? `-${count + 1}` : ""}.${guideFileType}`;
+          return {
+            filename,
+            blob: await buildInstallationGuideBlob(room, state.constants, guideFileType),
+          };
+        }))
         : await (async () => {
           const roomCardFileType = isRoomCardFileType(exportFileType) ? exportFileType : "pdf";
           const roomReports = await Promise.all(state.rooms.map(async (room) => {
@@ -2503,8 +2607,8 @@ function App() {
                   rooms={state.rooms}
                   zoom={zoom}
                   warnings={activeWarnings}
-                  cutPlan={cutPlanState}
-                  isCutPlanLoading={isCutPlanLoading}
+                  cutPlan={displayedCutPlanState}
+                  isCutPlanLoading={isDisplayedCutPlanLoading}
                   cutOptimizationMode={cutOptimizationMode}
                   onZoomChange={setZoom}
                   onCutOptimizationModeChange={setCutOptimizationMode}
@@ -2567,10 +2671,10 @@ function App() {
         />
       )}
       {activeSection === "room" && (
-          <MobileActionBar
-            onSave={saveCurrentState}
-            onPreview={previewCurrentRoom}
-            onCut={() => setRoomWorkspacePanel("cut")}
+        <MobileActionBar
+          onSave={saveCurrentState}
+          onPreview={previewCurrentRoom}
+          onCut={() => setRoomWorkspacePanel("cut")}
           onMaterials={() => setRoomWorkspacePanel("materials")}
           onExport={() => setIsExportModalOpen(true)}
           canExport={Boolean(state.rooms.length)}
@@ -3085,7 +3189,7 @@ function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants,
     }
 
     const requestId = crypto.randomUUID();
-    const cacheKey = buildCalculationCacheKey("material-takeoff-state", { rooms, constants });
+    const cacheKey = buildCalculationCacheKey("material-takeoff-state", { version: MATERIAL_TAKEOFF_CACHE_VERSION, rooms, constants });
     const workerToastId = `material-takeoff-${cacheKey}`;
     let worker: Worker | null = null;
     let isCurrent = true;
@@ -3604,98 +3708,98 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           <span>Основни параметри</span>
           <small>Име, размери, площ и конструкция</small>
         </summary>
-      <div className="field-grid">
-        <label>Име
-          <input value={room.name} onChange={(event) => onRoomChange((draft) => { draft.name = event.target.value || "Стая"; })} />
-        </label>
-        <label>Ширина X (cm)
-          <input type="number" value={room.width} onChange={(event) => onRoomChange((draft) => { draft.width = Number(event.target.value); })} />
-        </label>
-        <label>Дължина Y (cm)
-          <input type="number" value={room.length} onChange={(event) => onRoomChange((draft) => { draft.length = Number(event.target.value); })} />
-        </label>
-        <label>Площ (m2)
-          <input type="number" step="0.01" value={room.area} onChange={(event) => onRoomChange((draft) => {
-            draft.area = Number(event.target.value);
-            draft.overrides.area = true;
-          })} />
-        </label>
-      </div>
+        <div className="field-grid">
+          <label>Име
+            <input value={room.name} onChange={(event) => onRoomChange((draft) => { draft.name = event.target.value || "Стая"; })} />
+          </label>
+          <label>Ширина X (cm)
+            <input type="number" value={room.width} onChange={(event) => onRoomChange((draft) => { draft.width = Number(event.target.value); })} />
+          </label>
+          <label>Дължина Y (cm)
+            <input type="number" value={room.length} onChange={(event) => onRoomChange((draft) => { draft.length = Number(event.target.value); })} />
+          </label>
+          <label>Площ (m2)
+            <input type="number" step="0.01" value={room.area} onChange={(event) => onRoomChange((draft) => {
+              draft.area = Number(event.target.value);
+              draft.overrides.area = true;
+            })} />
+          </label>
+        </div>
 
-      <div className="divider" />
-      <FireCertificationPanel check={fireCertification} />
-      <div className="system-card">
-        <label className="system-select-label">Конструкция
-          <select value={room.systemType} onChange={(event) => onSystemChange(event.target.value as SystemType)}>
-            {Object.entries(CONSTRUCTION_TYPES).map(([value, item]) => (
-              <option key={value} value={value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
-        {room.systemType === "D112" && (
-          <label className="system-select-label">Вариант D112
-            <select value={d112Variant} onChange={(event) => onRoomChange((draft) => {
-              draft.d112Variant = event.target.value as D112Variant;
-              draft.fireRating = draft.fireRating !== "none" && getLoadClasses(draft.systemType, true, draft.d116Variant, draft.d112Variant).length ? draft.fireRating : "none";
-              draft.fireProtection = draft.fireRating !== "none";
-              draft.loadClass = getLoadClasses(draft.systemType, draft.fireProtection, draft.d116Variant, draft.d112Variant)[0] ?? draft.loadClass;
-              draft.overrides.a = false;
-              draft.overrides.c = false;
-              syncSpacingFromKnaufTable(draft, { keepC: false });
-            })}>
-              {Object.entries(D112_VARIANTS).map(([value, item]) => (
+        <div className="divider" />
+        <FireCertificationPanel check={fireCertification} />
+        <div className="system-card">
+          <label className="system-select-label">Конструкция
+            <select value={room.systemType} onChange={(event) => onSystemChange(event.target.value as SystemType)}>
+              {Object.entries(CONSTRUCTION_TYPES).map(([value, item]) => (
                 <option key={value} value={value}>{item.label}</option>
               ))}
             </select>
           </label>
-        )}
-        {room.systemType === "D116" && (
-          <label className="system-select-label">Вариант D116
-            <select value={d116Variant} onChange={(event) => onRoomChange((draft) => {
-              draft.d116Variant = event.target.value as D116Variant;
-              draft.loadClass = getLoadClasses(draft.systemType, draft.fireProtection, draft.d116Variant, draft.d112Variant)[0] ?? draft.loadClass;
-              draft.overrides.a = false;
-              draft.overrides.c = false;
-              syncSpacingFromKnaufTable(draft, { keepC: false });
-            })}>
-              {Object.entries(D116_VARIANTS).map(([value, item]) => (
-                <option key={value} value={value}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        {room.systemType === "CUSTOM" && (
-          <div className="custom-profile-grid">
-            <label>Носещ профил
-              <select value={room.customBearingProfile ?? "cd_60_27"} onChange={(event) => onRoomChange((draft) => {
-                draft.customBearingProfile = event.target.value as CustomProfileType;
+          {room.systemType === "D112" && (
+            <label className="system-select-label">Вариант D112
+              <select value={d112Variant} onChange={(event) => onRoomChange((draft) => {
+                draft.d112Variant = event.target.value as D112Variant;
+                draft.fireRating = draft.fireRating !== "none" && getLoadClasses(draft.systemType, true, draft.d116Variant, draft.d112Variant).length ? draft.fireRating : "none";
+                draft.fireProtection = draft.fireRating !== "none";
+                draft.loadClass = getLoadClasses(draft.systemType, draft.fireProtection, draft.d116Variant, draft.d112Variant)[0] ?? draft.loadClass;
+                draft.overrides.a = false;
+                draft.overrides.c = false;
+                syncSpacingFromKnaufTable(draft, { keepC: false });
               })}>
-                {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                {Object.entries(D112_VARIANTS).map(([value, item]) => (
+                  <option key={value} value={value}>{item.label}</option>
                 ))}
               </select>
             </label>
-            <label>Монтажен профил
-              <select value={room.customMountingProfile ?? "cd_60_27"} onChange={(event) => onRoomChange((draft) => {
-                draft.customMountingProfile = event.target.value as CustomProfileType;
+          )}
+          {room.systemType === "D116" && (
+            <label className="system-select-label">Вариант D116
+              <select value={d116Variant} onChange={(event) => onRoomChange((draft) => {
+                draft.d116Variant = event.target.value as D116Variant;
+                draft.loadClass = getLoadClasses(draft.systemType, draft.fireProtection, draft.d116Variant, draft.d112Variant)[0] ?? draft.loadClass;
+                draft.overrides.a = false;
+                draft.overrides.c = false;
+                syncSpacingFromKnaufTable(draft, { keepC: false });
               })}>
-                {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                {Object.entries(D116_VARIANTS).map(([value, item]) => (
+                  <option key={value} value={value}>{item.label}</option>
                 ))}
               </select>
             </label>
-            <label>Периферен профил
-              <select value={room.customPerimeterProfile ?? "ud_28_27"} onChange={(event) => onRoomChange((draft) => {
-                draft.customPerimeterProfile = event.target.value as CustomProfileType;
-              })}>
-                {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
-      </div>
+          )}
+          {room.systemType === "CUSTOM" && (
+            <div className="custom-profile-grid">
+              <label>Носещ профил
+                <select value={room.customBearingProfile ?? "cd_60_27"} onChange={(event) => onRoomChange((draft) => {
+                  draft.customBearingProfile = event.target.value as CustomProfileType;
+                })}>
+                  {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Монтажен профил
+                <select value={room.customMountingProfile ?? "cd_60_27"} onChange={(event) => onRoomChange((draft) => {
+                  draft.customMountingProfile = event.target.value as CustomProfileType;
+                })}>
+                  {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Периферен профил
+                <select value={room.customPerimeterProfile ?? "ud_28_27"} onChange={(event) => onRoomChange((draft) => {
+                  draft.customPerimeterProfile = event.target.value as CustomProfileType;
+                })}>
+                  {Object.values(CUSTOM_PROFILE_OPTIONS).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
       </details>
 
       {warnings.length > 0 && (
@@ -3713,70 +3817,70 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           <span>Натоварване</span>
           <small>Товар, огнезащита, плоскости и окачвачи</small>
         </summary>
-      <div className="field-grid">
-        <label className="span-2">Режим товар
-          <select value={room.loadInputMode ?? "manual"} onChange={(event) => onRoomChange((draft) => {
-            draft.loadInputMode = event.target.value as LoadInputMode;
-            if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
-            draft.overrides.a = false;
-            syncSpacingFromKnaufTable(draft, { keepC: true });
-          })}>
-            <option value="manual">Ръчно</option>
-            <option value="auto">Автоматично от слоеве</option>
-          </select>
-          <span className="field-note">Оценка {estimatedLoadKg} kg/m2 {"->"} до {automaticLoadClass} kN/m2</span>
-        </label>
-        <label className="load-select-label span-2">Натоварване
-          <select value={room.loadClass} disabled={room.loadInputMode === "auto"} onChange={(event) => onRoomChange((draft) => {
-            draft.loadClass = event.target.value as LoadClass;
-            draft.overrides.a = false;
-            syncSpacingFromKnaufTable(draft, { keepC: true });
-          })}>
-            {loadClasses.map((value) => <option key={value} value={value}>до {value} kN/m2</option>)}
-          </select>
-        </label>
-        <label>Огнезащита/EI
-          <select value={fireRating} disabled={!fireLoadClasses.length} onChange={(event) => onRoomChange((draft) => {
-            draft.fireRating = event.target.value as FireRating;
-            draft.fireProtection = draft.fireRating !== "none";
-            if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
-            draft.overrides.a = false;
-            syncSpacingFromKnaufTable(draft, { keepC: true });
-          })}>
-            {FIRE_RATING_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="span-2">Тип/дебелина гипсокартон
-          <select value={room.boardType} onChange={(event) => onRoomChange((draft) => {
-            draft.boardType = event.target.value as Room["boardType"];
-            draft.overrides.b = draft.boardType === "custom";
-            if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
-            syncSpacingFromKnaufTable(draft, { keepC: true });
-          })}>
-            {boardOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
-        <label>Доп. товар (kg/m2)
-          <input type="number" min="0" step="0.1" value={room.additionalLoadKgPerM2 ?? 0} onChange={(event) => onRoomChange((draft) => {
-            draft.additionalLoadKgPerM2 = Math.max(0, Number(event.target.value) || 0);
-            if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
-            draft.overrides.a = false;
-            syncSpacingFromKnaufTable(draft, { keepC: true });
-          })} />
-        </label>
-        <label className="span-2">Тип окачвач
-          <select value={selectedHanger.value} onChange={(event) => onRoomChange((draft) => {
-            draft.hangerType = event.target.value as HangerType;
-          })}>
-            {hangerOptions.map((option) => (
-              <option key={option.value} value={option.value}>{formatHangerOptionLabel(option)}</option>
-            ))}
-          </select>
-          <span className="field-note">{selectedHanger.useWhen}</span>
-        </label>
-      </div>
+        <div className="field-grid">
+          <label className="span-2">Режим товар
+            <select value={room.loadInputMode ?? "manual"} onChange={(event) => onRoomChange((draft) => {
+              draft.loadInputMode = event.target.value as LoadInputMode;
+              if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
+              draft.overrides.a = false;
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })}>
+              <option value="manual">Ръчно</option>
+              <option value="auto">Автоматично от слоеве</option>
+            </select>
+            <span className="field-note">Оценка {estimatedLoadKg} kg/m2 {"->"} до {automaticLoadClass} kN/m2</span>
+          </label>
+          <label className="load-select-label span-2">Натоварване
+            <select value={room.loadClass} disabled={room.loadInputMode === "auto"} onChange={(event) => onRoomChange((draft) => {
+              draft.loadClass = event.target.value as LoadClass;
+              draft.overrides.a = false;
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })}>
+              {loadClasses.map((value) => <option key={value} value={value}>до {value} kN/m2</option>)}
+            </select>
+          </label>
+          <label>Огнезащита/EI
+            <select value={fireRating} disabled={!fireLoadClasses.length} onChange={(event) => onRoomChange((draft) => {
+              draft.fireRating = event.target.value as FireRating;
+              draft.fireProtection = draft.fireRating !== "none";
+              if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
+              draft.overrides.a = false;
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })}>
+              {FIRE_RATING_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="span-2">Тип/дебелина гипсокартон
+            <select value={room.boardType} onChange={(event) => onRoomChange((draft) => {
+              draft.boardType = event.target.value as Room["boardType"];
+              draft.overrides.b = draft.boardType === "custom";
+              if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })}>
+              {boardOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label>Доп. товар (kg/m2)
+            <input type="number" min="0" step="0.1" value={room.additionalLoadKgPerM2 ?? 0} onChange={(event) => onRoomChange((draft) => {
+              draft.additionalLoadKgPerM2 = Math.max(0, Number(event.target.value) || 0);
+              if (draft.loadInputMode === "auto") draft.loadClass = getAutomaticLoadClass(draft);
+              draft.overrides.a = false;
+              syncSpacingFromKnaufTable(draft, { keepC: true });
+            })} />
+          </label>
+          <label className="span-2">Тип окачвач
+            <select value={selectedHanger.value} onChange={(event) => onRoomChange((draft) => {
+              draft.hangerType = event.target.value as HangerType;
+            })}>
+              {hangerOptions.map((option) => (
+                <option key={option.value} value={option.value}>{formatHangerOptionLabel(option)}</option>
+              ))}
+            </select>
+            <span className="field-note">{selectedHanger.useWhen}</span>
+          </label>
+        </div>
       </details>
 
       <details className="settings-accordion" open>
@@ -3788,52 +3892,52 @@ function RoomEditor({ room, loadClasses, isValid, warnings, onSystemChange, onRe
           <strong>Разстояния</strong>
           <button type="button" className="ghost small" onClick={onResetAuto}>{isCustom ? "Върни стандартни" : "Върни по Knauf"}</button>
         </div>
-      <div className="field-grid spacing-card">
-        {isCustom ? (
-          <>
-            <SelectNumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} options={CUSTOM_A_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-              draft.a = value;
-              syncDistanceOverride(draft, "a");
+        <div className="field-grid spacing-card">
+          {isCustom ? (
+            <>
+              <SelectNumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} options={CUSTOM_A_OPTIONS} onChange={(value) => onRoomChange((draft) => {
+                draft.a = value;
+                syncDistanceOverride(draft, "a");
+              })} />
+              <SelectNumberField label="b Разстояние между монтажни профили (mm)" value={room.b} manual={room.overrides.b} options={CUSTOM_B_OPTIONS} onChange={(value) => onRoomChange((draft) => {
+                draft.b = value;
+                syncDistanceOverride(draft, "b");
+              })} />
+              <SelectNumberField label="c Разстояние между носещи профили (mm)" value={room.c} manual={room.overrides.c} options={CUSTOM_C_OPTIONS} onChange={(value) => onRoomChange((draft) => {
+                draft.c = value;
+                syncDistanceOverride(draft, "c");
+              })} />
+            </>
+          ) : (
+            <>
+              <SelectNumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} options={aOptions} onChange={(value) => onRoomChange((draft) => {
+                draft.a = value;
+                syncDistanceOverride(draft, "a");
+              })} />
+              <SelectNumberField label="b Разстояние между монтажни CD профили (mm)" value={room.b} manual={room.overrides.b} options={bOptions} onChange={(value) => onRoomChange((draft) => {
+                draft.b = value;
+                syncDistanceOverride(draft, "b");
+              })} />
+              <SelectNumberField label="c Разстояние между носещи CD/UA профили (mm)" value={room.c} manual={room.overrides.c} options={cOptions} onChange={(value) => onRoomChange((draft) => {
+                draft.c = value;
+                syncDistanceOverride(draft, "c");
+                draft.overrides.a = false;
+                syncSpacingFromKnaufTable(draft, { keepC: true });
+              })} />
+            </>
+          )}
+          {isCustom ? (
+            <SelectNumberField label={`Дюбели периферия (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} options={CUSTOM_UD_ANCHOR_OPTIONS} onChange={(value) => onRoomChange((draft) => {
+              draft.udAnchorSpacing = value;
+              syncDistanceOverride(draft, "udAnchorSpacing");
             })} />
-            <SelectNumberField label="b Разстояние между монтажни профили (mm)" value={room.b} manual={room.overrides.b} options={CUSTOM_B_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-              draft.b = value;
-              syncDistanceOverride(draft, "b");
+          ) : (
+            <NumberField label={`UD дюбели (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} onChange={(value) => onRoomChange((draft) => {
+              draft.udAnchorSpacing = value;
+              syncDistanceOverride(draft, "udAnchorSpacing");
             })} />
-            <SelectNumberField label="c Разстояние между носещи профили (mm)" value={room.c} manual={room.overrides.c} options={CUSTOM_C_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-              draft.c = value;
-              syncDistanceOverride(draft, "c");
-            })} />
-          </>
-        ) : (
-          <>
-            <SelectNumberField label="a Разстояние между окачвачи (mm)" value={room.a} manual={room.overrides.a} options={aOptions} onChange={(value) => onRoomChange((draft) => {
-              draft.a = value;
-              syncDistanceOverride(draft, "a");
-            })} />
-            <SelectNumberField label="b Разстояние между монтажни CD профили (mm)" value={room.b} manual={room.overrides.b} options={bOptions} onChange={(value) => onRoomChange((draft) => {
-              draft.b = value;
-              syncDistanceOverride(draft, "b");
-            })} />
-            <SelectNumberField label="c Разстояние между носещи CD/UA профили (mm)" value={room.c} manual={room.overrides.c} options={cOptions} onChange={(value) => onRoomChange((draft) => {
-              draft.c = value;
-              syncDistanceOverride(draft, "c");
-              draft.overrides.a = false;
-              syncSpacingFromKnaufTable(draft, { keepC: true });
-            })} />
-          </>
-        )}
-        {isCustom ? (
-          <SelectNumberField label={`Дюбели периферия (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} options={CUSTOM_UD_ANCHOR_OPTIONS} onChange={(value) => onRoomChange((draft) => {
-            draft.udAnchorSpacing = value;
-            syncDistanceOverride(draft, "udAnchorSpacing");
-          })} />
-        ) : (
-          <NumberField label={`UD дюбели (${udRule.mode}, mm)`} value={room.udAnchorSpacing} manual={room.overrides.udAnchorSpacing} onChange={(value) => onRoomChange((draft) => {
-            draft.udAnchorSpacing = value;
-            syncDistanceOverride(draft, "udAnchorSpacing");
-          })} />
-        )}
-      </div>
+          )}
+        </div>
       </details>
 
       <details className="settings-accordion">
@@ -3930,10 +4034,11 @@ function ConstantsEditor({ constants, onChange, onSave }: {
           <NumberInput label="Първи профил от стена (cm)" value={constants.profileEdgeOffsetCm} step={1} onChange={(value) => onChange({ profileEdgeOffsetCm: Math.max(0, value) })} />
         </SettingsGroup>
 
-        <SettingsGroup title="Крепежи" note="Норми за винтове. Дюбелите за UD и окачвачи се изчисляват отделно по геометрията.">
-          <NumberInput label="Винтове/връзка" value={constants.metalScrewsPerCrossConnector} onChange={(value) => onChange({ metalScrewsPerCrossConnector: value })} />
-          <NumberInput label="Винтове/окачвач" value={constants.metalScrewsPerDirectHanger} onChange={(value) => onChange({ metalScrewsPerDirectHanger: value })} />
-          <NumberInput label="TN винтове/m2/слой" value={constants.drywallScrewsPerM2} onChange={(value) => onChange({ drywallScrewsPerM2: value })} />
+        <SettingsGroup title="Крепежи" note="Въвеждат се разходни норми по детайл. UD дюбелите Fischer DuoPower се смятат от UD стъпката в настройките на стаята.">
+          <NumberInput label="Кръстата връзка CD/CD - винтове LN 3,5 x 11 (бр./връзка)" value={constants.metalScrewsPerCrossConnector} onChange={(value) => onChange({ metalScrewsPerCrossConnector: value })} />
+          <NumberInput label="Окачвач - метален дюбел пирон 6 x 35 (бр./окачвач)" value={constants.anchorsPerDirectHanger} onChange={(value) => onChange({ anchorsPerDirectHanger: value })} />
+          <NumberInput label="CD удължител - винтове LN 3,5 x 11 (бр./съединител)" value={constants.metalScrewsPerProfileExtension} onChange={(value) => onChange({ metalScrewsPerProfileExtension: value })} />
+          <NumberInput label="TN винт за гипсокартон - разход (бр./m2/слой)" value={constants.drywallScrewsPerM2} onChange={(value) => onChange({ drywallScrewsPerM2: value })} />
         </SettingsGroup>
 
         <SettingsGroup title="Плоскости" note="Размер на листа за превръщане на площта в бройки. Слоевете идват от типа плоскост, освен при Custom.">
@@ -3942,10 +4047,11 @@ function ConstantsEditor({ constants, onChange, onSave }: {
           <NumberInput label="Custom слоеве плоскости" value={constants.boardLayers} onChange={(value) => onChange({ boardLayers: Math.max(1, Math.round(value)) })} />
         </SettingsGroup>
 
-        <SettingsGroup title="Фуги и периметър" note="Ориентировъчни разходни норми за довършителни материали.">
+        <SettingsGroup title="Фуги и периметър" note="Ориентировъчни разходни норми за довършителни материали. Коефициентът за разделителната лента покрива загуби и застъпки към UD профила.">
           <NumberInput label="Фуголента m/m2" value={constants.jointTapePerM2} step={0.1} onChange={(value) => onChange({ jointTapePerM2: value })} />
           <NumberInput label="Шпакловка kg/m2" value={constants.jointCompoundKgPerM2} step={0.05} onChange={(value) => onChange({ jointCompoundKgPerM2: value })} />
-          <NumberInput label="Trenn-Fix x периметър" value={constants.trennFixPerimeterMultiplier} step={0.1} onChange={(value) => onChange({ trennFixPerimeterMultiplier: value })} />
+          <NumberInput label="PE уплътняваща лента 30мм - коефициент към UD профил" value={constants.trennFixPerimeterMultiplier} step={0.1} onChange={(value) => onChange({ trennFixPerimeterMultiplier: value })} />
+          <NumberInput label="PE уплътняваща лента 30мм/окачвач (cm)" value={constants.trennFixPerHangerCm} step={0.5} onChange={(value) => onChange({ trennFixPerHangerCm: Math.max(0, value) })} />
         </SettingsGroup>
 
         <SettingsGroup title="Изолация" note="Минералната вата се добавя автоматично при огнезащита или ръчно оттук.">
@@ -4163,22 +4269,22 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
     };
   }), [rooms, constants]);
   const totals = useMemo(() => roomRows.reduce((sum, { room, result }) => ({
-      area: sum.area + (Number(room.area) || 0),
-      cdProfiles: sum.cdProfiles + result.cdTotalProfiles,
-      udProfiles: sum.udProfiles + result.udProfiles,
-      crossConnectors: sum.crossConnectors + result.crossConnectors,
-      hangers: sum.hangers + result.hangersTotal,
-      anchors: sum.anchors + result.anchorsTotal,
-      screws: sum.screws + result.metalScrews + result.drywallScrews,
-    }), {
-      area: 0,
-      cdProfiles: 0,
-      udProfiles: 0,
-      crossConnectors: 0,
-      hangers: 0,
-      anchors: 0,
-      screws: 0,
-    }), [roomRows]);
+    area: sum.area + (Number(room.area) || 0),
+    cdProfiles: sum.cdProfiles + result.cdTotalProfiles,
+    udProfiles: sum.udProfiles + result.udProfiles,
+    crossConnectors: sum.crossConnectors + result.crossConnectors,
+    hangers: sum.hangers + result.hangersTotal,
+    anchors: sum.anchors + result.anchorsTotal,
+    screws: sum.screws + result.metalScrews + result.drywallScrews,
+  }), {
+    area: 0,
+    cdProfiles: 0,
+    udProfiles: 0,
+    crossConnectors: 0,
+    hangers: 0,
+    anchors: 0,
+    screws: 0,
+  }), [roomRows]);
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -4311,116 +4417,116 @@ function RoomsTable({ rooms, constants, activeRoomId, onAddRoom, onSelect, onDel
         <p className="empty-state">Няма запазени стаи. Активната стая ще се появи тук след Запази стая.</p>
       ) : (
         <>
-        <div className="table-scroll rooms-table-scroll">
-          <table className="rooms-table">
-            <colgroup>
-              <col className="col-room" />
-              <col className="col-system" />
-              <col className="col-dimensions" />
-              <col className="col-area" />
-              <col className="col-small" />
-              <col className="col-small" />
-              <col className="col-small" />
-              <col className="col-small" />
-              <col className="col-compact" />
-              <col className="col-small" />
-              <col className="col-compact" />
-              <col className="col-small" />
-              <col className="col-compact" />
-              <col className="col-small" />
-              <col className="col-actions" />
-            </colgroup>
-            <thead>
-              <tr>
-                <th scope="col" className="sticky-room-col">Стая</th>
-                <th scope="col">Система</th>
-                <th scope="col" className="group-dimensions">Размери</th>
-                <th scope="col" className="group-dimensions">m2</th>
-                <th scope="col" className="group-structure">Носещи</th>
-                <th scope="col" className="group-structure">Монтажни</th>
-                <th scope="col" className="group-structure">CD</th>
-                <th scope="col" className="group-structure">CD Опт</th>
-                <th scope="col" className="group-structure">UD</th>
-                <th scope="col" className="group-structure">UD Опт</th>
-                <th scope="col" className="group-fasteners">Връзки</th>
-                <th scope="col" className="group-fasteners">Окачвачи</th>
-                <th scope="col" className="group-fasteners">Дюбели</th>
-                <th scope="col" className="group-fasteners">Винтове</th>
-                <th scope="col" className="group-actions">Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {roomRows.map(({ room, result }) => {
-                const isExpanded = expandedRoomId === room.id;
-                const optimized = cutOptimizationState.rows[room.id];
-                return (
-                  <Fragment key={room.id}>
-                    <tr className={room.id === activeRoomId ? "selected-row" : ""}>
-                      <td className="sticky-room-col">
-                        <button
-                          type="button"
-                          className="link-button room-name-button"
-                          aria-expanded={isExpanded}
-                          onClick={() => handleRoomNameClick(room.id)}
-                        >
-                          {room.name}
-                        </button>
-                      </td>
-                      <td><span className="system-pill">{room.systemType}</span></td>
-                      <td>{room.width} x {room.length} cm</td>
-                      <td>{formatNumber(room.area)}</td>
-                      <td>{result.bearingCount}</td>
-                      <td>{result.mountingCount}</td>
-                      <td>{result.cdTotalProfiles}</td>
-                      <td>{formatOptimizedCount(optimized?.cd)}</td>
-                      <td>{result.udProfiles}</td>
-                      <td>{formatOptimizedCount(optimized?.ud)}</td>
-                      <td>{result.crossConnectors}</td>
-                      <td>{result.hangersTotal}</td>
-                      <td>{result.anchorsTotal}</td>
-                      <td>{result.metalScrews + result.drywallScrews}</td>
-                      <td>
-                        <div className="row-actions">
-                          <button type="button" className="ghost small" title="Монтажни етапи" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
-                          <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded ? (
-                      <tr className="room-metrics-row">
-                        <td colSpan={15}>
-                          <div className="room-metrics-detail" aria-label={`Показатели за ${room.name}`}>
-                            <ResultCards result={result} room={room} />
+          <div className="table-scroll rooms-table-scroll">
+            <table className="rooms-table">
+              <colgroup>
+                <col className="col-room" />
+                <col className="col-system" />
+                <col className="col-dimensions" />
+                <col className="col-area" />
+                <col className="col-small" />
+                <col className="col-small" />
+                <col className="col-small" />
+                <col className="col-small" />
+                <col className="col-compact" />
+                <col className="col-small" />
+                <col className="col-compact" />
+                <col className="col-small" />
+                <col className="col-compact" />
+                <col className="col-small" />
+                <col className="col-actions" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th scope="col" className="sticky-room-col">Стая</th>
+                  <th scope="col">Система</th>
+                  <th scope="col" className="group-dimensions">Размери</th>
+                  <th scope="col" className="group-dimensions">m2</th>
+                  <th scope="col" className="group-structure">Носещи</th>
+                  <th scope="col" className="group-structure">Монтажни</th>
+                  <th scope="col" className="group-structure">CD</th>
+                  <th scope="col" className="group-structure">CD Опт</th>
+                  <th scope="col" className="group-structure">UD</th>
+                  <th scope="col" className="group-structure">UD Опт</th>
+                  <th scope="col" className="group-fasteners">Връзки</th>
+                  <th scope="col" className="group-fasteners">Окачвачи</th>
+                  <th scope="col" className="group-fasteners">Дюбели</th>
+                  <th scope="col" className="group-fasteners">Винтове</th>
+                  <th scope="col" className="group-actions">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roomRows.map(({ room, result }) => {
+                  const isExpanded = expandedRoomId === room.id;
+                  const optimized = cutOptimizationState.rows[room.id];
+                  return (
+                    <Fragment key={room.id}>
+                      <tr className={room.id === activeRoomId ? "selected-row" : ""}>
+                        <td className="sticky-room-col">
+                          <button
+                            type="button"
+                            className="link-button room-name-button"
+                            aria-expanded={isExpanded}
+                            onClick={() => handleRoomNameClick(room.id)}
+                          >
+                            {room.name}
+                          </button>
+                        </td>
+                        <td><span className="system-pill">{room.systemType}</span></td>
+                        <td>{room.width} x {room.length} cm</td>
+                        <td>{formatNumber(room.area)}</td>
+                        <td>{result.bearingCount}</td>
+                        <td>{result.mountingCount}</td>
+                        <td>{result.cdTotalProfiles}</td>
+                        <td>{formatOptimizedCount(optimized?.cd)}</td>
+                        <td>{result.udProfiles}</td>
+                        <td>{formatOptimizedCount(optimized?.ud)}</td>
+                        <td>{result.crossConnectors}</td>
+                        <td>{result.hangersTotal}</td>
+                        <td>{result.anchorsTotal}</td>
+                        <td>{result.metalScrews + result.drywallScrews}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button type="button" className="ghost small" title="Монтажни етапи" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
+                            <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
                           </div>
                         </td>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="rooms-card-list">
-          {roomRows.map(({ room, result }) => {
-                const optimized = cutOptimizationState.rows[room.id];
-                return (
-              <article key={room.id} className={room.id === activeRoomId ? "room-card selected" : "room-card"}>
-                <button type="button" className="link-button room-card-title" onClick={() => onSelect(room.id)}>{room.name}</button>
-                <p>{room.systemType} · {room.width} x {room.length} cm · {formatNumber(room.area)} m2</p>
-                <div className="room-card-metrics">
-                  <span>CD: <strong>{result.cdTotalProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.cd)}</small></span>
-                  <span>Окачвачи: <strong>{result.hangersTotal}</strong></span>
-                  <span>UD: <strong>{result.udProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.ud)}</small></span>
-                </div>
-                <div className="row-actions">
-                  <button type="button" className="ghost small" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
-                  <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                      {isExpanded ? (
+                        <tr className="room-metrics-row">
+                          <td colSpan={15}>
+                            <div className="room-metrics-detail" aria-label={`Показатели за ${room.name}`}>
+                              <ResultCards result={result} room={room} />
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="rooms-card-list">
+            {roomRows.map(({ room, result }) => {
+              const optimized = cutOptimizationState.rows[room.id];
+              return (
+                <article key={room.id} className={room.id === activeRoomId ? "room-card selected" : "room-card"}>
+                  <button type="button" className="link-button room-card-title" onClick={() => onSelect(room.id)}>{room.name}</button>
+                  <p>{room.systemType} · {room.width} x {room.length} cm · {formatNumber(room.area)} m2</p>
+                  <div className="room-card-metrics">
+                    <span>CD: <strong>{result.cdTotalProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.cd)}</small></span>
+                    <span>Окачвачи: <strong>{result.hangersTotal}</strong></span>
+                    <span>UD: <strong>{result.udProfiles}</strong><small>опт. {formatOptimizedCount(optimized?.ud)}</small></span>
+                  </div>
+                  <div className="row-actions">
+                    <button type="button" className="ghost small" aria-label={`Монтажни етапи за ${room.name}`} onClick={() => onOpenInstallationGuide(room.id)}>Етапи</button>
+                    <button type="button" className="danger small" aria-label={`Изтрий ${room.name}`} onClick={() => onDelete(room.id)}>Изтрий</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </>
       )}
     </section>
@@ -4594,8 +4700,8 @@ function HelpPanel() {
         </article>
         <article>
           <h3>Обшивка и фуги</h3>
-          <p><strong>TN</strong> са винтове за гипсокартон към метал. <strong>LN/LB</strong> са винтове за метални връзки и профили.</p>
-          <p>Плоскостите се смятат по площ, размер на листа и брой слоеве. Фуголента, шпакловка и Trenn-Fix са ориентировъчни количества и трябва да се сверят с избраната технология.</p>
+          <p><strong>TN</strong> са винтове за гипсокартон към метал. CD връзките и CD удължителите се обединяват в покупния артикул <strong>LN 3,5 x 11 mm</strong>. Окачвачите използват метален дюбел пирон.</p>
+          <p>Плоскостите се смятат по площ, размер на листа и брой слоеве. Фуголента, шпакловка и PE уплътняваща лента 30мм са ориентировъчни количества и трябва да се сверят с избраната технология.</p>
         </article>
       </div>
     </section>

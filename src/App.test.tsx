@@ -6,7 +6,7 @@ import { DEFAULT_CONSTANTS, MaterialTakeoffItem, createRoom } from "./domain/cal
 
 const STORAGE_KEY = "d113-calculator-v2";
 
-type WorkerMessage = { type: string; requestId: string };
+type WorkerMessage = { type: string; requestId: string; mode?: string };
 
 class MockWorker {
   static instances: MockWorker[] = [];
@@ -183,6 +183,17 @@ describe("App recalculation flow", () => {
 
     expect(await screen.findByText("Нови плоскости")).toBeInTheDocument();
     expect(screen.queryByText("Тест плоскости")).not.toBeInTheDocument();
+  });
+
+  it("starts the global cut plan in the background before the global cut tab is opened", async () => {
+    seedSavedRoom();
+    render(<App />);
+
+    const worker = await findWorkerFor("optimize-cut-plan");
+    const message = latestMessage(worker, "optimize-cut-plan");
+
+    expect(message.mode).toBe("global");
+    expect(await screen.findByText("Прекалкулиране... Общият разкрой може да отнеме повече време.")).toBeInTheDocument();
   });
 
   it("does not apply global settings until settings Save is clicked", async () => {

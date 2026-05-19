@@ -61,6 +61,7 @@ export interface CalculatorConstants {
   woodBattenLength: number;
   metalScrewsPerCrossConnector: number;
   metalScrewsPerDirectHanger: number;
+  metalScrewsPerProfileExtension: number;
   drywallScrewsPerM2: number;
   boardWidth: number;
   boardLength: number;
@@ -69,6 +70,7 @@ export interface CalculatorConstants {
   jointTapePerM2: number;
   jointCompoundKgPerM2: number;
   trennFixPerimeterMultiplier: number;
+  trennFixPerHangerCm: number;
   mineralWoolEnabled: boolean;
   mineralWoolThickness: number;
   anchorsPerDirectHanger: number;
@@ -239,7 +241,7 @@ export interface MaterialTakeoffItem {
   key: string;
   label: string;
   quantity: number;
-  unit: "бр." | "m" | "m2" | "kg";
+  unit: "бр." | "m" | "m2" | "kg" | "кут.";
   note: string;
   source: QuantitySource;
   optimizedQuantity?: number;
@@ -758,6 +760,7 @@ export const DEFAULT_CONSTANTS: CalculatorConstants = {
   woodBattenLength: 4,
   metalScrewsPerCrossConnector: 4,
   metalScrewsPerDirectHanger: 2,
+  metalScrewsPerProfileExtension: 2,
   drywallScrewsPerM2: 25,
   boardWidth: 1.2,
   boardLength: 2,
@@ -765,7 +768,8 @@ export const DEFAULT_CONSTANTS: CalculatorConstants = {
   profileEdgeOffsetCm: 10,
   jointTapePerM2: 1.4,
   jointCompoundKgPerM2: 0.3,
-  trennFixPerimeterMultiplier: 1,
+  trennFixPerimeterMultiplier: 1.1,
+  trennFixPerHangerCm: 6,
   mineralWoolEnabled: false,
   mineralWoolThickness: 50,
   anchorsPerDirectHanger: 1,
@@ -2256,14 +2260,15 @@ export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTA
   const anchorsUd = countPerimeterAnchors(X, Y, room.udAnchorSpacing);
   const anchorsHangers = hangersTotal * constants.anchorsPerDirectHanger;
   const anchorsTotal = anchorsUd + anchorsHangers;
-  const metalScrews = Math.ceil(
-    (crossConnectors * constants.metalScrewsPerCrossConnector)
-    + (hangersTotal * constants.metalScrewsPerDirectHanger),
-  );
   const boardLayers = getEffectiveBoardLayers(room, constants);
   const drywallScrews = Math.ceil(Number(room.area) * boardLayers * constants.drywallScrewsPerM2);
   const extBearing = bearingCount * Math.max(0, Math.ceil((L / 100) / constants.cdLength) - 1);
   const extMounting = mountingCount * Math.max(0, Math.ceil((W / 100) / constants.cdLength) - 1);
+  const extensionsTotal = extBearing + extMounting;
+  const metalScrews = Math.ceil(
+    (crossConnectors * constants.metalScrewsPerCrossConnector)
+    + (extensionsTotal * constants.metalScrewsPerProfileExtension),
+  );
 
   return {
     W,
@@ -2286,7 +2291,7 @@ export function calc(room: Room, constants: CalculatorConstants = DEFAULT_CONSTA
     anchorsTotal,
     metalScrews,
     drywallScrews,
-    extensionsTotal: extBearing + extMounting,
+    extensionsTotal,
   };
 }
 
@@ -2437,10 +2442,10 @@ function countOptimizedProfileBars(
 
 function getOptimizedProfileExplanation(item: MaterialTakeoffItem): string | undefined {
   if (isOptimizedCdMaterial(item)) {
-    return "Стандартната бройка е изчислена чрез закръгляне на общата дължина към цели CD профили. Бройката след разкрой отчита оптимизирано комбиниране на носещи и монтажни CD парчета, без смесване с UD профили.";
+    return "Геометричната бройка е изчислена чрез деление на общата CD дължина към цели CD профили. Бройката за покупка отчита оптимизирано комбиниране на носещи и монтажни CD парчета, без смесване с UD профили.";
   }
   if (isOptimizedUdMaterial(item)) {
-    return "Стандартната бройка е изчислена чрез закръгляне на общия периметър към цели UD профили. Бройката след разкрой отчита оптимизирано използване на остатъците от UD профили по периферията.";
+    return "Геометричната бройка е изчислена чрез деление на общия периметър към цели UD профили. Бройката за покупка отчита оптимизирано използване на остатъците от UD профили по периферията.";
   }
   return undefined;
 }
@@ -2517,7 +2522,7 @@ export function buildMaterialTakeoff(
       add({
         key: "d116-cd-60-27",
         label: "D116 CD 60/27 монтажни профили",
-        quantity: result.mountingProfiles,
+        quantity: result.mountingLengthTotal / constants.cdLength,
         unit: "бр.",
         note: `${formatTakeoffLength(result.mountingLengthTotal)} m монтажни CD`,
         source: "geometry",
@@ -2597,14 +2602,14 @@ export function buildMaterialTakeoff(
       });
     } else {
       const connectorLabel = room.systemType === "D113"
-        ? "D113 връзки на едно ниво за CD"
+        ? "D113 Кръстата връзка за едно ниво CD"
         : room.systemType === "D112"
           ? "D112 кръстати връзки за CD"
           : "Custom връзки";
       add({
         key: `${system}-cd-60-27`,
         label: `${room.systemType} CD 60/27 профили`,
-        quantity: result.cdTotalProfiles,
+        quantity: result.cdTotalLength / constants.cdLength,
         unit: "бр.",
         note: `${formatTakeoffLength(result.cdTotalLength)} m носещи + монтажни профили`,
         source: "geometry",
@@ -2640,26 +2645,26 @@ export function buildMaterialTakeoff(
 
     add({
       key: `${system}-anchors-ud`,
-      label: `${room.systemType} дюбели за периферия`,
-      quantity: result.anchorsUd,
-      unit: "бр.",
-      note: `стъпка ${room.udAnchorSpacing} mm; ${udRule.note}`,
+      label: `${room.systemType} Fischer DuoPower 6мм дюбели`,
+      quantity: result.anchorsUd / 50,
+      unit: "кут.",
+      note: `${result.anchorsUd} бр. UD дюбели; опаковка x50; стъпка ${room.udAnchorSpacing} mm; ${udRule.note}`,
       source: room.overrides.udAnchorSpacing ? "manual" : "geometry",
     });
     add({
       key: `${system}-anchors-hangers`,
-      label: `${room.systemType} дюбели за окачвачи`,
+      label: `${room.systemType} Метален дюбел пирон 6 x 35 mm`,
       quantity: result.anchorsHangers,
       unit: "бр.",
-      note: `геометрично по броя окачвачи; избран тип: ${hanger.label}`,
+      note: `по ${constants.anchorsPerDirectHanger} бр./окачвач; избран тип: ${hanger.label}`,
       source: "geometry",
     });
     add({
-      key: `${system}-metal-screws`,
-      label: `${room.systemType} LN/LB винтове за метал/връзки`,
-      quantity: result.metalScrews,
-      unit: "бр.",
-      note: "по глобалните настройки за винтове/връзка и винтове/окачвач",
+      key: `${system}-ln-sheet-metal-screws-box`,
+      label: `${room.systemType} Винт за ламарина LN 3,5 x 11 mm/1000бр кутия`,
+      quantity: result.metalScrews / 1000,
+      unit: "кут.",
+      note: `${result.metalScrews} бр. метални винтове общо: CD връзки и надлъжни съединители`,
       source: "estimate",
     });
     add({
@@ -2706,10 +2711,10 @@ export function buildMaterialTakeoff(
     });
     add({
       key: `${system}-trenn-fix`,
-      label: `${room.systemType} Trenn-Fix / разделителна лента`,
-      quantity: result.udTotalLength * constants.trennFixPerimeterMultiplier,
+      label: `${room.systemType} PE уплътняваща лента 30мм`,
+      quantity: (result.udTotalLength + (result.hangersTotal * constants.trennFixPerHangerCm / 100)) * constants.trennFixPerimeterMultiplier,
       unit: "m",
-      note: "по периметъра на помещението",
+      note: `UD периметър + ${constants.trennFixPerHangerCm} cm за всеки окачвач към тавана`,
       source: "estimate",
     });
     if (constants.mineralWoolEnabled || room.fireProtection) {
@@ -2729,7 +2734,7 @@ export function buildMaterialTakeoff(
         ? mountingExtensions
         : room.systemType === "CUSTOM"
           ? countExtensions(result.bearingCount, result.L, getProfileLength(normalizeCustomProfile(room.customBearingProfile, DEFAULT_CUSTOM_BEARING_PROFILE), constants))
-            + countExtensions(result.mountingCount, result.W, getProfileLength(normalizeCustomProfile(room.customMountingProfile, DEFAULT_CUSTOM_MOUNTING_PROFILE), constants))
+          + countExtensions(result.mountingCount, result.W, getProfileLength(normalizeCustomProfile(room.customMountingProfile, DEFAULT_CUSTOM_MOUNTING_PROFILE), constants))
           : bearingExtensions + mountingExtensions,
       unit: "бр.",
       note: room.systemType === "D116" ? "за CD профили; UA удължаването е отделено като UW оценка" : "геометрична оценка според дължината на профила",

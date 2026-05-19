@@ -131,7 +131,7 @@ self.onmessage = (event: MessageEvent<CutOptimizationWorkerRequest>) => {
       const response: CutOptimizationWorkerResponse = {
         type: "material-takeoff-result",
         requestId: message.requestId,
-        rows: buildMaterialTakeoff(message.rooms, message.constants, { includeOptimizedQuantities: false }),
+        rows: buildMaterialTakeoff(message.rooms, message.constants),
       };
       self.postMessage(response);
       return;

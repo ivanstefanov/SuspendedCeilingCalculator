@@ -115,7 +115,10 @@ describe("calculator", () => {
     expect(result.bearingCount).toBe(4);
     expect(result.mountingCount).toBe(5);
     expect(result.crossConnectors).toBe(20);
-    expect(result.metalScrews).toBe((20 * DEFAULT_CONSTANTS.metalScrewsPerCrossConnector) + (result.hangersTotal * DEFAULT_CONSTANTS.metalScrewsPerDirectHanger));
+    expect(result.metalScrews).toBe(
+      (20 * DEFAULT_CONSTANTS.metalScrewsPerCrossConnector)
+      + (result.extensionsTotal * DEFAULT_CONSTANTS.metalScrewsPerProfileExtension),
+    );
   });
 
   it("redistributes short-room hanger positions while keeping Knauf maximum spacing", () => {
@@ -798,11 +801,87 @@ describe("calculator", () => {
     expect(rows.some((row) => row.key === "d113-trenn-fix")).toBe(true);
   });
 
+  it("adds hanger ceiling contact length to Trenn-Fix material", () => {
+    const room = makeRoom({
+      systemType: "D113",
+      width: 300,
+      length: 400,
+      area: 12,
+      loadClass: "0.30",
+      a: 900,
+      b: 500,
+      c: 600,
+    });
+    const constants = { ...DEFAULT_CONSTANTS, wastePercent: 0, trennFixPerimeterMultiplier: 1, trennFixPerHangerCm: 12.5 };
+    const result = calc(room, constants);
+    const rows = buildMaterialTakeoff([room], constants);
+    const trennFixRow = rows.find((row) => row.key === "d113-trenn-fix");
+
+    expect(trennFixRow?.quantity).toBe(Number((result.udTotalLength + (result.hangersTotal * 0.125)).toFixed(2)));
+    expect(trennFixRow?.note).toContain("за всеки окачвач");
+  });
+
+  it("uses the default Trenn-Fix waste and hanger contact settings", () => {
+    expect(DEFAULT_CONSTANTS.trennFixPerimeterMultiplier).toBe(1.1);
+    expect(DEFAULT_CONSTANTS.trennFixPerHangerCm).toBe(6);
+  });
+
   it("scales TN drywall screws by board layers", () => {
     const room = makeRoom({ area: 12, loadClass: "0.30", boardType: "knauf_2x12.5", c: 600, a: 900 });
     const result = calc(room, { ...DEFAULT_CONSTANTS, boardLayers: 1, drywallScrewsPerM2: 25 });
 
     expect(result.drywallScrews).toBe(600);
+  });
+
+  it("uses one LN sheet metal screw box purchase row for metal screws", () => {
+    const room = makeRoom({
+      width: 420,
+      length: 620,
+      area: 26.04,
+      systemType: "D113",
+      loadClass: "0.30",
+      boardType: "knauf_2x12.5",
+      a: 900,
+      b: 500,
+      c: 600,
+    });
+    const constants = {
+      ...DEFAULT_CONSTANTS,
+      wastePercent: 0,
+      metalScrewsPerCrossConnector: 4,
+      metalScrewsPerDirectHanger: 2,
+      metalScrewsPerProfileExtension: 2,
+      drywallScrewsPerM2: 25,
+    };
+    const result = calc(room, constants);
+    const rows = buildMaterialTakeoff([room], constants);
+
+    const screwRow = rows.find((row) => row.key === "d113-ln-sheet-metal-screws-box");
+
+    expect(screwRow?.label).toBe("Винт за ламарина LN 3,5 x 11 mm/1000бр кутия");
+    expect(screwRow?.unit).toBe("кут.");
+    expect(screwRow?.quantity).toBe(Math.ceil(result.metalScrews / 1000));
+    expect(rows.find((row) => row.key === "d113-tn-screws")?.quantity).toBe(result.drywallScrews);
+    expect(rows.some((row) => row.key === "d113-lb-screws-connectors")).toBe(false);
+    expect(rows.some((row) => row.key === "d113-ln-screws-hangers")).toBe(false);
+    expect(rows.some((row) => row.key === "d113-ln-screws-extensions")).toBe(false);
+    expect(result.metalScrews).toBe(
+      (result.crossConnectors * 4)
+      + (result.extensionsTotal * 2),
+    );
+  });
+
+  it("labels UD and hanger anchors with the selected purchase items", () => {
+    const room = makeRoom({ systemType: "D113", loadClass: "0.30", c: 600, a: 900 });
+    const rows = buildMaterialTakeoff([room], { ...DEFAULT_CONSTANTS, wastePercent: 0 });
+    const udRow = rows.find((item) => item.key === "d113-anchors-ud");
+    const hangerRow = rows.find((item) => item.key === "d113-anchors-hangers");
+
+    expect(udRow?.label).toBe("Fischer DuoPower 6мм дюбели");
+    expect(udRow?.unit).toBe("кут.");
+    expect(udRow?.note).toContain("опаковка x50");
+    expect(hangerRow?.label).toBe("Метален дюбел пирон 6 x 35 mm");
+    expect(hangerRow?.note).toContain("бр./окачвач");
   });
 
   it("uses manual board layers only for custom board types", () => {
@@ -1088,5 +1167,24 @@ describe("calculator", () => {
 
     expect(rows.find((row) => row.key === "d112-cd-60-27")?.optimizedQuantity).toBe(cdBars);
     expect(rows.find((row) => row.key === "d112-ud-28-27")?.optimizedQuantity).toBe(udBars);
+  });
+
+  it("uses total CD length instead of per-row rounded profile count for the material base quantity", () => {
+    const room = makeRoom({
+      systemType: "D113",
+      width: 420,
+      length: 620,
+      area: 26.04,
+      loadClass: "0.30",
+      a: 900,
+      b: 500,
+      c: 600,
+    });
+    const result = calc(room, DEFAULT_CONSTANTS);
+    const rows = buildMaterialTakeoff([room], { ...DEFAULT_CONSTANTS, wastePercent: 0, cdLength: 4 });
+    const cdRow = rows.find((row) => row.key === "d113-cd-60-27");
+
+    expect(cdRow?.quantity).toBe(Math.ceil(result.cdTotalLength / 4));
+    expect(cdRow?.quantity).toBeLessThan(result.cdTotalProfiles);
   });
 });
