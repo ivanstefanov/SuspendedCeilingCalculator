@@ -3,7 +3,7 @@ const DB_VERSION = 1;
 const STORE_NAME = "entries";
 const LOCAL_STORAGE_PREFIX = "scc-calculation-cache:";
 
-export type CalculationCacheKind = "room-table-cuts" | "cut-plan" | "material-takeoff";
+export type CalculationCacheKind = "room-table-cuts" | "cut-plan" | "cut-plan-state" | "material-takeoff" | "material-takeoff-state";
 
 type CacheEntry<T> = {
   key: string;

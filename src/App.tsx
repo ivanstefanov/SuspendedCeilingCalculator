@@ -103,6 +103,11 @@ type WorkerToastMessage = {
   detail: string;
   status: WorkerToastStatus;
 };
+type MaterialTakeoffState = {
+  status: "idle" | "loading" | "ready" | "error";
+  rows: MaterialTakeoffItem[];
+  error: string | null;
+};
 type WorkerStatusEventDetail = WorkerToastMessage | { id: string; status: "dismiss" };
 type OptimizedProfileCounts = { cd: number | null; ud: number | null };
 type CutOptimizationWorkerResponse =
@@ -142,6 +147,21 @@ const INACTIVE_CUT_PLAN: CutPlanState = {
   plan: null,
   error: "Разкроят се изчислява при отваряне на таб Разкрой.",
 };
+
+function isCutPlanState(value: unknown): value is CutPlanState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<CutPlanState>;
+  if (state.plan && state.error === null) return true;
+  return state.plan === null && typeof state.error === "string";
+}
+
+function isMaterialTakeoffState(value: unknown): value is MaterialTakeoffState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<MaterialTakeoffState>;
+  return (state.status === "ready" || state.status === "error")
+    && Array.isArray(state.rows)
+    && (typeof state.error === "string" || state.error === null);
+}
 type RoomCardExportFileType = "pdf" | "png" | "html";
 type InstallationGuideExportFileType = "pdf" | "html";
 type TableExportFileType = "excel" | "json" | "html";
@@ -1793,6 +1813,12 @@ function App() {
   const activeRoom = state.draftRoom;
   const activeResult = useMemo(() => calc(cloneRoom(activeRoom), state.constants), [activeRoom, state.constants]);
   const shouldShowCutPlan = activeSection === "room" && roomWorkspacePanel === "cut";
+  const cutPlanCacheInput = useMemo(() => cutOptimizationMode === "global"
+    ? { mode: "global", rooms: state.rooms, constants: state.constants }
+    : { mode: "room", room: activeRoom, constants: state.constants },
+    [activeRoom, cutOptimizationMode, state.constants, state.rooms]);
+  const cutPlanCacheKey = useMemo(() => buildCalculationCacheKey("cut-plan-state", cutPlanCacheInput), [cutPlanCacheInput]);
+  const cutPlanRoom = cutOptimizationMode === "room" ? activeRoom : null;
   const activeWarnings = useMemo(() => getValidationWarnings(cloneRoom(activeRoom)), [activeRoom]);
   const isValid = !activeWarnings.some((warning) => warning.severity === "error");
   const installationGuideRoom = installationGuideRoomId
@@ -1860,20 +1886,16 @@ function App() {
     }
 
     const requestId = crypto.randomUUID();
-    const cacheInput = cutOptimizationMode === "global"
-      ? { mode: "global", rooms: state.rooms, constants: state.constants }
-      : { mode: "room", room: activeRoom, constants: state.constants };
-    const cacheKey = buildCalculationCacheKey("cut-plan", cacheInput);
-    const workerToastId = `cut-plan-${cacheKey}`;
+    const workerToastId = `cut-plan-${cutPlanCacheKey}`;
     let worker: Worker | null = null;
     let isCurrent = true;
     let timeoutId: number | null = null;
 
-    void readCalculationCache<CutOptimizationResult>(cacheKey).then((cachedPlan) => {
+    void readCalculationCache<unknown>(cutPlanCacheKey).then((cachedValue) => {
       if (!isCurrent) return;
-      if (cachedPlan) {
+      if (isCutPlanState(cachedValue)) {
         setIsCutPlanLoading(false);
-        setCutPlanState({ plan: cachedPlan, error: null });
+        setCutPlanState(cachedValue);
         return;
       }
 
@@ -1886,7 +1908,7 @@ function App() {
         setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Фоновият разкрой отне твърде дълго и беше прекъснат." }));
         emitWorkerStatus({
           id: workerToastId,
-          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
           detail: "Прекъснато след твърде дълго изчисление.",
           status: "error",
         });
@@ -1896,7 +1918,7 @@ function App() {
       setCutPlanState((current) => (current.plan ? current : { plan: null, error: "Прекалкулиране..." }));
       emitWorkerStatus({
         id: workerToastId,
-        title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+        title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
         detail: "Прекалкулиране...",
         status: "loading",
       });
@@ -1904,20 +1926,23 @@ function App() {
       worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
         if (!isCurrent || event.data.requestId !== requestId) return;
         if (event.data.type === "cut-plan-result") {
-          setCutPlanState({ plan: event.data.plan, error: null });
-          void writeCalculationCache(cacheKey, event.data.plan);
+          const nextState: CutPlanState = { plan: event.data.plan, error: null };
+          setCutPlanState(nextState);
+          void writeCalculationCache(cutPlanCacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
-            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
             detail: "Готово",
             status: "done",
           });
         } else if (event.data.type === "cut-plan-error") {
           const error = event.data.error;
-          setCutPlanState((current) => (current.plan ? current : { plan: null, error }));
+          const nextState: CutPlanState = { plan: null, error };
+          setCutPlanState((current) => (current.plan ? current : nextState));
+          void writeCalculationCache(cutPlanCacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
-            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+            title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
             detail: error,
             status: "error",
           });
@@ -1934,7 +1959,7 @@ function App() {
         if (timeoutId) window.clearTimeout(timeoutId);
         emitWorkerStatus({
           id: workerToastId,
-          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${activeRoom.name}`,
+          title: cutOptimizationMode === "global" ? "Общ разкрой" : `Разкрой: ${cutPlanRoom?.name ?? "стая"}`,
           detail: "Фоновият разкрой не може да бъде стартиран.",
           status: "error",
         });
@@ -1953,7 +1978,7 @@ function App() {
             type: "optimize-cut-plan",
             requestId,
             mode: "room",
-            room: activeRoom,
+            room: cutPlanRoom ?? activeRoom,
             constants: state.constants,
           });
     });
@@ -1964,7 +1989,7 @@ function App() {
       worker?.terminate();
       emitWorkerStatus({ id: workerToastId, status: "dismiss" });
     };
-  }, [activeRoom, cutOptimizationMode, shouldShowCutPlan, state.constants, state.rooms]);
+  }, [cutOptimizationMode, cutPlanCacheKey, cutPlanRoom, shouldShowCutPlan, state.constants, state.rooms]);
 
   function commit(updater: (draft: AppState) => void): void {
     setState((current) => {
@@ -2705,16 +2730,16 @@ function InstallationGuideContent({ room, constants, mode }: {
 
   useEffect(() => {
     const requestId = crypto.randomUUID();
-    const cacheKey = buildCalculationCacheKey("cut-plan", { mode: "installation-room", room: safeRoom, constants });
+    const cacheKey = buildCalculationCacheKey("cut-plan-state", { mode: "installation-room", room: safeRoom, constants });
     const workerToastId = `installation-cut-${cacheKey}`;
     let worker: Worker | null = null;
     let isCurrent = true;
     let timeoutId: number | null = null;
 
-    void readCalculationCache<CutOptimizationResult>(cacheKey).then((cachedPlan) => {
+    void readCalculationCache<unknown>(cacheKey).then((cachedValue) => {
       if (!isCurrent) return;
-      if (cachedPlan) {
-        setCutPlan({ plan: cachedPlan, error: null });
+      if (isCutPlanState(cachedValue)) {
+        setCutPlan(cachedValue);
         setIsCutPlanLoading(false);
         return;
       }
@@ -2746,8 +2771,9 @@ function InstallationGuideContent({ room, constants, mode }: {
       worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
         if (!isCurrent || event.data.requestId !== requestId) return;
         if (event.data.type === "cut-plan-result") {
-          setCutPlan({ plan: event.data.plan, error: null });
-          void writeCalculationCache(cacheKey, event.data.plan);
+          const nextState: CutPlanState = { plan: event.data.plan, error: null };
+          setCutPlan(nextState);
+          void writeCalculationCache(cacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
             title: `Монтажни етапи: ${safeRoom.name}`,
@@ -2756,7 +2782,9 @@ function InstallationGuideContent({ room, constants, mode }: {
           });
         } else if (event.data.type === "cut-plan-error") {
           const error = event.data.error;
-          setCutPlan((current) => (current.plan ? current : { plan: null, error }));
+          const nextState: CutPlanState = { plan: null, error };
+          setCutPlan((current) => (current.plan ? current : nextState));
+          void writeCalculationCache(cacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
             title: `Монтажни етапи: ${safeRoom.name}`,
@@ -3048,11 +3076,7 @@ const RoomWorkspacePanelView = memo(function RoomWorkspacePanelView({ activeTab,
 });
 
 function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants, title: string) {
-  const [materialState, setMaterialState] = useState<{
-    status: "idle" | "loading" | "ready" | "error";
-    rows: MaterialTakeoffItem[];
-    error: string | null;
-  }>({ status: "idle", rows: [], error: null });
+  const [materialState, setMaterialState] = useState<MaterialTakeoffState>({ status: "idle", rows: [], error: null });
 
   useEffect(() => {
     if (!rooms.length) {
@@ -3061,16 +3085,16 @@ function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants,
     }
 
     const requestId = crypto.randomUUID();
-    const cacheKey = buildCalculationCacheKey("material-takeoff", { rooms, constants });
+    const cacheKey = buildCalculationCacheKey("material-takeoff-state", { rooms, constants });
     const workerToastId = `material-takeoff-${cacheKey}`;
     let worker: Worker | null = null;
     let isCurrent = true;
     let timeoutId: number | null = null;
 
-    void readCalculationCache<MaterialTakeoffItem[]>(cacheKey).then((cachedRows) => {
+    void readCalculationCache<unknown>(cacheKey).then((cachedValue) => {
       if (!isCurrent) return;
-      if (cachedRows) {
-        setMaterialState({ status: "ready", rows: cachedRows, error: null });
+      if (isMaterialTakeoffState(cachedValue)) {
+        setMaterialState(cachedValue);
         return;
       }
 
@@ -3103,8 +3127,9 @@ function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants,
       worker.onmessage = (event: MessageEvent<CutOptimizationWorkerResponse>) => {
         if (!isCurrent || event.data.requestId !== requestId) return;
         if (event.data.type === "material-takeoff-result") {
-          setMaterialState({ status: "ready", rows: event.data.rows, error: null });
-          void writeCalculationCache(cacheKey, event.data.rows);
+          const nextState: MaterialTakeoffState = { status: "ready", rows: event.data.rows, error: null };
+          setMaterialState(nextState);
+          void writeCalculationCache(cacheKey, nextState);
           emitWorkerStatus({
             id: workerToastId,
             title,
@@ -3113,7 +3138,11 @@ function useMaterialTakeoffWorker(rooms: Room[], constants: CalculatorConstants,
           });
         } else if (event.data.type === "material-takeoff-error") {
           const error = event.data.error;
-          setMaterialState((current) => ({ status: "error", rows: current.rows, error }));
+          setMaterialState((current) => {
+            const nextState: MaterialTakeoffState = { status: "error", rows: current.rows, error };
+            void writeCalculationCache(cacheKey, nextState);
+            return nextState;
+          });
           emitWorkerStatus({
             id: workerToastId,
             title,
